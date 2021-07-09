@@ -133,7 +133,8 @@ export class Broker {
      * very useful for resetting after doing some tests
      */
     static resetConfig() {
-        return shell.cp(path.join(__dirname, '../config/centreon-broker.json'), Broker.CENTRON_BROKER_CONFIG_PATH)
+        shell.cp(path.join(__dirname, '../config/centreon-broker.json'), Broker.CENTRON_BROKER_CONFIG_PATH);
+        shell.chmod('a+rw', Broker.CENTRON_BROKER_CONFIG_PATH);
     }
 
 
@@ -171,8 +172,7 @@ export class Broker {
 
     static async isMySqlRunning() : Promise<Boolean> {
         const cdList = shell.exec('systemctl status mysql').stdout.split('\n')
-        let retval;
-        retval = cdList.find(line => line.includes('inactive'))
+        let retval = cdList.find(line => line.includes('inactive'))
         if (retval)
             return true
         else
