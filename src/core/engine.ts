@@ -224,7 +224,7 @@ export class Engine {
         }
 
         let p = new Promise((resolve, reject) => {
-            let count = hosts + hosts * servicesByHost + nbCommands;
+            let count = hosts + hosts * servicesByHost + nbCommands + 1 /* for notification command */;
             mkdir(configDir, () => {
                 open(configDir + '/hosts.cfg', 'w', (err, fd) => {
                     if (err) {
@@ -279,6 +279,29 @@ export class Engine {
                                 }
                             });
                         }
+                        write(fd, Buffer.from(`define command {
+    command_name                    notif
+    command_line                    /var/lib/centreon-engine-tests/notif.pl
+}
+define command {
+    command_name                    test-notif
+    command_line                    /var/lib/centreon-engine-tests/notif.pl
+}
+define command {
+    command_name                    check
+    command_line                    /var/lib/centreon-engine-tests/check.pl 1
+}
+`), (err) => {
+                            if (err) {
+                                reject(err);
+                                return;
+                            }
+                        });
+                        --count; // one command written
+                        if (count <= 0) {
+                            resolve(true);
+                            return;
+                        };
                     });
                 });
                 if (count <= 0)
@@ -300,8 +323,8 @@ export class Engine {
 
             if (!existsSync('/var/lib/centreon-engine-test'))
                 mkdirSync('/var/lib/centreon-engine-test');
-                
-            for (let f of ['check.pl'])
+
+            for (let f of ['check.pl', 'notif.pl'])
                 copyFileSync(scriptDir + '/' + f, '/var/lib/centreon-engine-test/' + f)
             return true;
         })
