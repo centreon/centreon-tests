@@ -54,7 +54,7 @@ export class Broker {
     async stop() : Promise<Boolean> {
         if (await this.isRunning(25)) {
             let ret1 = this.process.kill()
-            
+
             let ret2 = true;
             if (this.instanceCount == 2)
                 ret2 = this.rrdProcess.kill()
@@ -127,7 +127,7 @@ export class Broker {
 
         return false;
     }
-    
+
     async checkCoredump() : Promise<boolean> {
         let retval;
         const cdList = shell.exec('ps ax').stdout.split('\n')
@@ -336,22 +336,22 @@ export class Broker {
         instances = instances.filter(String)
 
         for (let i of instances) {
-          let str =  i.trim().split(" ", 1)
-          let pid = +str
-          console.log(i, pid)
-          shell.exec('kill -9 ' + pid)
+            let str = i.trim().split(" ", 1)
+            let pid = +str
+            console.log(i, pid)
+            shell.exec('kill -9 ' + pid)
         }
     }
 
     static cleanAllInstances() : void {
         /* close cbd if running */
         if (Broker.isServiceRunning()) {
-          shell.exec('systemctl stop cbd')
+            shell.exec('systemctl stop cbd')
         }
 
         /* closes instances of cbd if running */
         if (Broker.isInstancesRunning()) {
-          Broker.closeInstances()
+            Broker.closeInstances()
         }
     }
 }

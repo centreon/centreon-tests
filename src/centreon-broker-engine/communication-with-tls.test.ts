@@ -23,20 +23,20 @@ describe('engine and broker testing in same time for compression', () => {
         Broker.resetConfigCentralRrd()
 
         if (Broker.isServiceRunning() || Engine.isServiceRunning()) {
-          console.log("program could not stop cbd or centengine")
-          process.exit(1)
+            console.log("program could not stop cbd or centengine")
+            process.exit(1)
         }
     })
 
     afterAll(() => {
         beforeEach(() => {
-          Broker.cleanAllInstances();
-          Engine.cleanAllInstances();
+            Broker.cleanAllInstances();
+            Engine.cleanAllInstances();
 
-          Broker.clearLogs()
-          Broker.resetConfig()
-          Broker.resetConfigCentralModule()
-          Broker.resetConfigCentralRrd()
+            Broker.clearLogs()
+            Broker.resetConfig()
+            Broker.resetConfigCentralModule()
+            Broker.resetConfigCentralRrd()
         })
     })
 

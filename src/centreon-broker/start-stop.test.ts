@@ -16,8 +16,8 @@ describe('broker testing', () => {
 
     afterAll(() => {
         beforeEach(() => {
-          Broker.cleanAllInstances();
-          Engine.cleanAllInstances();
+            Broker.cleanAllInstances();
+            Engine.cleanAllInstances();
         })
     })
 
@@ -36,7 +36,7 @@ describe('broker testing', () => {
 
 
     it('start/stop centreon broker with reversed connection on TCP acceptor but only this instance => no deadlock', async () => {
-        
+
         /* Let's get the configuration, we remove the host to connect since we wan't the other peer
          * to establish the connection. We also set the one peer retention mode (just for the configuration
          * to be correct, not needed for the test). */

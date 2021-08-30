@@ -20,8 +20,8 @@ describe('engine and broker testing in same time for compression', () => {
         Broker.resetConfigCentralModule()
 
         if (Broker.isServiceRunning() || Engine.isServiceRunning()) {
-          console.log("program could not stop cbd or centengine")
-          process.exit(1)
+            console.log("program could not stop cbd or centengine")
+            process.exit(1)
         }
 
     })

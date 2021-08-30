@@ -4,7 +4,7 @@ import psList from 'ps-list'
 import sleep from 'await-sleep'
 import { once } from 'events'
 import { ChildProcess } from 'child_process'
-import { closeSync, existsSync, fstat, mkdir, mkdirSync, open, openSync, rmdir, rmdirSync, rmSync, write, writeSync } from 'fs'
+import { closeSync, copyFileSync, existsSync, fstat, mkdir, mkdirSync, open, openSync, rmdir, rmdirSync, rmSync, write, writeSync } from 'fs'
 import { rejects } from 'assert/strict'
 
 export class Engine {
@@ -47,7 +47,7 @@ export class Engine {
     }
 
     async checkCoredump() : Promise<boolean> {
-        let retval: string;
+        let retval : string;
         const cdList = shell.exec('ps ax').stdout.split('\n')
         retval = cdList.find(line => line.includes('/usr/lib/systemd/systemd-coredump'))
 
@@ -121,32 +121,32 @@ export class Engine {
             return false
     }
 
-     /**
-     *  this function close instances of cbd that are actually running
-     * @param  {void} 
-     * @returns {void} true if found, else false
-     */
+    /**
+    *  this function close instances of cbd that are actually running
+    * @param  {void} 
+    * @returns {void} true if found, else false
+    */
     static closeInstances() : void {
         let instances = shell.exec('ps ax |grep -v grep | grep /usr/sbin/centengine').stdout.split('\n')
         instances = instances.filter(String)
 
         for (let i of instances) {
-          let str =  i.trim().split(" ", 1)
-          let pid = +str
-          console.log(i, pid)
-          shell.exec('kill -9 ' + pid)
+            let str = i.trim().split(" ", 1)
+            let pid = +str
+            console.log(i, pid)
+            shell.exec('kill -9 ' + pid)
         }
     }
 
     static cleanAllInstances() : void {
         /* close centengine if running */
         if (Engine.isServiceRunning()) {
-          shell.exec('systemctl stop centengine')
+            shell.exec('systemctl stop centengine')
         }
 
         /* closes instances of centengine if running */
         if (Engine.isInstancesRunning()) {
-          Engine.closeInstances()
+            Engine.closeInstances()
         }
 
     }
@@ -181,7 +181,7 @@ export class Engine {
         if (commandId % 2 == 0) {
             let retval = `define command {
     command_name                    command_${commandId}
-    command_line                    /var/lib/centreon-engine/check.pl ${commandId}
+    command_line                    /var/lib/centreon-engine-tests/check.pl ${commandId}
     connector                       Perl Connector
 }
 `;
@@ -190,7 +190,7 @@ export class Engine {
         else {
             let retval = `define command {
     command_name                    command_${commandId}
-    command_line                    /var/lib/centreon-engine/check.pl ${commandId}
+    command_line                    /var/lib/centreon-engine-tests/check.pl ${commandId}
 }
 `;
             return retval
@@ -218,6 +218,7 @@ export class Engine {
     static async buildConfig(hosts : number = 50, servicesByHost : number = 20) : Promise<boolean> {
         let nbCommands = 50;
         let configDir = process.cwd() + '/src/config/centreon-engine';
+        let scriptDir = process.cwd() + '/src/config/scripts';
         if (existsSync(configDir)) {
             rmSync(configDir, { recursive: true });
         }
@@ -285,7 +286,25 @@ export class Engine {
             });
         });
 
-        let retval = p.then(ok => { return true; })
+        let retval = p.then(ok => {
+            for (let f of ['commands.cfg', 'services.cfg', 'hosts.cfg'])
+                copyFileSync(configDir + '/' + f, '/etc/centreon-engine/' + f);
+            const configTestDir = process.cwd() + '/src/config/centreon-engine-config/';
+            for (let f of ['centengine.cfg', 'centreon-bam-host.cfg', 'dependencies.cfg', 'meta_services.cfg',
+                'centreon-bam-command.cfg', 'centreon-bam-services.cfg', 'escalations.cfg', 'meta_timeperiod.cfg',
+                'centreon-bam-contactgroups.cfg', 'centreon-bam-timeperiod.cfg', 'hostgroups.cfg', 'resource.cfg',
+                'centreon-bam-contacts.cfg', 'connectors.cfg', 'hostTemplates.cfg', 'servicegroups.cfg',
+                'centreon-bam-dependencies.cfg', 'contactgroups.cfg', 'meta_commands.cfg', 'serviceTemplates.cfg',
+                'centreon-bam-escalations.cfg', 'contacts.cfg', 'meta_host.cfg', 'timeperiods.cfg'])
+                copyFileSync(configTestDir + f, '/etc/centreon-engine/' + f);
+
+            if (!existsSync('/var/lib/centreon-engine-test'))
+                mkdirSync('/var/lib/centreon-engine-test');
+                
+            for (let f of ['check.pl'])
+                copyFileSync(scriptDir + '/' + f, '/var/lib/centreon-engine-test/' + f)
+            return true;
+        })
             .catch(err => {
                 console.log(err);
                 return false

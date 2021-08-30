@@ -8,14 +8,14 @@ shell.config.silent = true;
 
 describe("start and stop engine", () => {
     beforeEach(() => {
-       Broker.cleanAllInstances();
-       Engine.cleanAllInstances();
+        Broker.cleanAllInstances();
+        Engine.cleanAllInstances();
     })
 
     afterAll(() => {
         beforeEach(() => {
-          Broker.cleanAllInstances();
-          Engine.cleanAllInstances();
+            Broker.cleanAllInstances();
+            Engine.cleanAllInstances();
         })
     })
 
@@ -44,7 +44,7 @@ describe("start and stop engine", () => {
         }
     }, 120000);
 
-    //it('Check custom config', async () => {
-    //    expect(await Engine.buildConfig()).toBeTruthy();
-    //}, 120000)
+    it.only('Check custom config', async () => {
+        expect(await Engine.buildConfig()).toBeTruthy();
+    }, 120000)
 })
