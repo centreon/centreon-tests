@@ -2,16 +2,14 @@
 import shell from 'shelljs'
 import psList from 'ps-list'
 import sleep from 'await-sleep'
-import { once } from 'events'
 import { ChildProcess } from 'child_process'
-import { closeSync, copyFileSync, existsSync, fstat, mkdir, mkdirSync, open, openSync, rmdir, rmdirSync, rmSync, write, writeSync } from 'fs'
-import { rejects } from 'assert/strict'
+import { copyFileSync, existsSync, mkdir, mkdirSync, open, rmSync, write } from 'fs'
 
 export class Engine {
-    private process : ChildProcess
-    private config : JSON;
-    static CENTREON_ENGINE_UID = parseInt(shell.exec('id -u centreon-engine'))
-    static CENTRON_ENGINE_CONFIG_PATH = `/etc/centreon-engine/centengine.cfg`
+    private process : ChildProcess;
+    static CENTREON_ENGINE_UID = parseInt(shell.exec('id -u centreon-engine'));
+    static CENTRON_ENGINE_CONFIG_PATH = '/etc/centreon-engine/centengine.cfg';
+    static CENTREON_ENGINE_HOME = '/var/lib/centreon-engine-tests';
 
     constructor() {
 
@@ -181,7 +179,7 @@ export class Engine {
         if (commandId % 2 == 0) {
             let retval = `define command {
     command_name                    command_${commandId}
-    command_line                    /var/lib/centreon-engine-tests/check.pl ${commandId}
+    command_line                    ${this.CENTREON_ENGINE_HOME}/${commandId}
     connector                       Perl Connector
 }
 `;
@@ -190,7 +188,7 @@ export class Engine {
         else {
             let retval = `define command {
     command_name                    command_${commandId}
-    command_line                    /var/lib/centreon-engine-tests/check.pl ${commandId}
+    command_line                    ${this.CENTREON_ENGINE_HOME}/check.pl ${commandId}
 }
 `;
             return retval
@@ -198,7 +196,7 @@ export class Engine {
     }
 
     static createService(hostId : number, serviceId : number, nbCommands : number) : string {
-        let commandId = ((hostId + 1) * (serviceId + 1)) % nbCommands;
+        let commandId = ((hostId + 1) * (serviceId + 1)) % nbCommands + 1;
         let retval = `define service {
     host_name                       host_${hostId}
     service_description             service_${serviceId}
@@ -281,15 +279,15 @@ export class Engine {
                         }
                         write(fd, Buffer.from(`define command {
     command_name                    notif
-    command_line                    /var/lib/centreon-engine-tests/notif.pl
+    command_line                    ${this.CENTREON_ENGINE_HOME}/notif.pl
 }
 define command {
     command_name                    test-notif
-    command_line                    /var/lib/centreon-engine-tests/notif.pl
+    command_line                    ${this.CENTREON_ENGINE_HOME}/notif.pl
 }
 define command {
     command_name                    check
-    command_line                    /var/lib/centreon-engine-tests/check.pl 1
+    command_line                    ${this.CENTREON_ENGINE_HOME}/check.pl 0
 }
 `), (err) => {
                             if (err) {
@@ -321,11 +319,11 @@ define command {
                 'centreon-bam-escalations.cfg', 'contacts.cfg', 'meta_host.cfg', 'timeperiods.cfg'])
                 copyFileSync(configTestDir + f, '/etc/centreon-engine/' + f);
 
-            if (!existsSync('/var/lib/centreon-engine-test'))
-                mkdirSync('/var/lib/centreon-engine-test');
+            if (!existsSync(this.CENTREON_ENGINE_HOME))
+                mkdirSync(this.CENTREON_ENGINE_HOME);
 
             for (let f of ['check.pl', 'notif.pl'])
-                copyFileSync(scriptDir + '/' + f, '/var/lib/centreon-engine-test/' + f)
+                copyFileSync(scriptDir + '/' + f, this.CENTREON_ENGINE_HOME + '/' + f)
             return true;
         })
             .catch(err => {
