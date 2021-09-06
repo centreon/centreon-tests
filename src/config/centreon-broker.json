@@ -53,6 +53,7 @@
                 "db_password": "centreon",
                 "db_name": "centreon_storage",
                 "queries_per_transaction": "1",
+                "connections_count": "3",
                 "read_timeout": "1",
                 "type": "sql"
             },
@@ -85,6 +86,7 @@
                 "read_timeout": "1",
                 "check_replication": "no",
                 "store_in_data_bin": "yes",
+                "connections_count": "3",
                 "insert_in_index_data": "1",
                 "type": "storage"
             }

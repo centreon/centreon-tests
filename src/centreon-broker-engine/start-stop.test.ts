@@ -15,7 +15,7 @@ describe('engine and broker testing in same time', () => {
         Broker.resetConfig();
         Engine.clearLogs();
 
-        if ((Broker.isServiceRunning()) || (Engine.isServiceRunning())) {
+        if (Broker.isServiceRunning() || Engine.isRunning()) {
             console.log("program could not stop cbd or centengine")
             process.exit(1)
         }
@@ -91,7 +91,7 @@ describe('engine and broker testing in same time', () => {
 
         await expect(isBrokerAndEngineConnected()).resolves.toBeTruthy()
 
-        await expect(Broker.checkLogFileContains(['[core] [error] failover: global error: storage: Unable to initialize the storage connection to the database'])).resolves.toBeTruthy()
+        await expect(broker.checkLogFileContains(['[core] [error] failover: global error: storage: Unable to initialize the storage connection to the database'])).resolves.toBeTruthy()
 
         await expect(broker.stop()).resolves.toBeTruthy();
         await expect(engine.stop()).resolves.toBeTruthy();
@@ -109,27 +109,34 @@ describe('engine and broker testing in same time', () => {
         const broker = new Broker(2);
         await expect(broker.start()).resolves.toBeTruthy();
 
-        expect(await Engine.buildConfig()).toBeTruthy();
         const engine = new Engine();
+        expect(await engine.buildConfig()).toBeTruthy();
         await engine.start();
-        await Engine.checkLogFileContains(["Event broker module '/usr/lib64/nagios/cbmod.so' initialized successfully"], 120);
+        await engine.checkLogFileContains(["Event broker module '/usr/lib64/nagios/cbmod.so' initialized successfully"], 120);
 
         await expect(isBrokerAndEngineConnected()).resolves.toBeTruthy()
 
-        await expect(Engine.addHostgroup(1, ['host_1', 'host_2', 'host_3'])).resolves.toBeTruthy();
+        await expect(engine.addHostgroup(1, ['host_1', 'host_2', 'host_3'])).resolves.toBeTruthy();
         await engine.reload();
-        await Engine.checkLogFileContains(["Event broker module '/usr/lib64/nagios/cbmod.so' initialized successfully"], 120);
         await broker.reload();
+        await engine.checkLogFileContains(["Event broker module '/usr/lib64/nagios/cbmod.so' initialized successfully"], 120);
         await expect(isBrokerAndEngineConnected()).resolves.toBeTruthy();
 
-        let host_name = await Engine.addHost();
-        await expect(Engine.addHostgroup(2, [host_name])).resolves.toBeTruthy();
+        let host_name = await engine.addHost();
+        await expect(engine.addHostgroup(2, [host_name])).resolves.toBeTruthy();
         let p = [engine.reload(), broker.reload()];
         await Promise.all(p);
-        //await engine.reload();
-        //await broker.reload();
         await expect(isBrokerAndEngineConnected()).resolves.toBeTruthy();
 
-        await Broker.checkLogFileContains(["SQL: processing host event (poller: 1, host: 51, name: host_51"], 120);
+        await expect(broker.checkLogFileContains([
+            "SQL: enabling membership of host 3 to host group 1 on instance 1",
+            "SQL: enabling membership of host 2 to host group 1 on instance 1",
+            "SQL: enabling membership of host 1 to host group 1 on instance 1",
+            "SQL: processing host event (poller: 1, host: 51, name: host_51",
+            "SQL: enabling membership of host 51 to host group 2 on instance 1"],
+            120)).resolves.toBeTruthy();
+
+        await engine.stop();
+        await broker.stop();
     }, 300000);
 });

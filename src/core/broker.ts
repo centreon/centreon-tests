@@ -1,13 +1,13 @@
 import shell from 'shelljs'
 import psList from 'ps-list'
-import files from 'fs'
+import { chownSync, existsSync, createReadStream, rmSync, writeFileSync } from 'fs'
 import fs from 'fs/promises'
 import { ChildProcess } from 'child_process'
 import sleep from 'await-sleep';
 import path from 'path';
 import { strict as assert } from 'assert';
 import { SIGHUP } from 'constants';
-
+import readline from 'readline'
 
 export class Broker {
     private instanceCount : number
@@ -26,9 +26,12 @@ export class Broker {
     static CENTRON_MODULE_CONFIG_PATH = `/etc/centreon-broker/central-module.json`
     static CENTRON_RRD_CONFIG_PATH = `/etc/centreon-broker/central-rrd.json`
 
+    lastMatchingLog: number;
+
     constructor(count : number = 2) {
         assert(count == 1 || count == 2)
         this.instanceCount = count
+        this.lastMatchingLog = Math.floor(Date.now() / 1000);
     }
 
 
@@ -235,8 +238,37 @@ export class Broker {
      * @param  {number} seconds=15 number of second to wait before returning
      * @returns {Promise<Boolean>} true if found, else false
      */
-    static async checkLogFileContains(strings : Array<string>, seconds : number = 15) : Promise<boolean> {
+    async checkLogFileContains(strings : Array<string>, seconds : number = 15) : Promise<boolean> {
+        let from = this.lastMatchingLog;
 
+        let p = new Promise((resolve, reject) => {
+            const rl = readline.createInterface({
+                input: createReadStream(Broker.CENTREON_BROKER_CENTRAL_LOGS_PATH),
+                terminal: false
+            });
+            let first = strings.shift();
+            rl.on('line', line => {
+                let d = line.substring(1);
+                let dd = parseInt(d);
+                if (dd >= from) {
+                    if (d.includes(first)) {
+                        this.lastMatchingLog = dd;
+                        if (strings.length === 0) {
+                            resolve(true);
+                            return;
+                        }
+                        first = strings.shift();
+                    }
+                    if (dd - from > seconds)
+                        reject(`Cannot find string ${first} in centengine.log`);
+                }
+            });
+        });
+
+        let retval = p.then((value : boolean) => { return value; });
+        return retval;
+    }
+/*
         for (let i = 0; i < seconds * 10; ++i) {
             const logs = await Broker.getLogs()
 
@@ -251,7 +283,7 @@ export class Broker {
 
         return false;
         //throw Error(`log file ${Broker.CENTREON_BROKER_LOGS_PATH} does not contain expected strings ${strings.toString()}`)
-    }
+    }*/
 
     static async checkLogFileCentralModuleContains(strings : Array<string>, seconds : number = 15) : Promise<boolean> {
 
@@ -280,15 +312,15 @@ export class Broker {
     }
 
     static clearLogs() : void {
-        if (files.existsSync(Broker.CENTREON_BROKER_CENTRAL_LOGS_PATH))
-            files.rmSync(Broker.CENTREON_BROKER_CENTRAL_LOGS_PATH)
+        if (existsSync(Broker.CENTREON_BROKER_CENTRAL_LOGS_PATH))
+            rmSync(Broker.CENTREON_BROKER_CENTRAL_LOGS_PATH)
     }
 
     static clearLogsCentralModule() : void {
-        files.rmSync(Broker.CENTREON_MODULE_LOGS_PATH)
-        files.writeFileSync(Broker.CENTREON_MODULE_LOGS_PATH, "")
+        rmSync(Broker.CENTREON_MODULE_LOGS_PATH)
+        writeFileSync(Broker.CENTREON_MODULE_LOGS_PATH, "")
 
-        files.chownSync(Broker.CENTREON_MODULE_LOGS_PATH, Broker.CENTREON_ENGINE_UID,
+        chownSync(Broker.CENTREON_MODULE_LOGS_PATH, Broker.CENTREON_ENGINE_UID,
             Broker.CENTREON_ENGINE_GID)
     }
 
