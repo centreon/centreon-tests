@@ -214,7 +214,7 @@ it('repeat 20 times start/stop cbd with a wrong configuration in perfdata', asyn
         expect(await broker.checkCoredump()).toBeFalsy()
     }
     let p = new Promise((resolve, reject) => {
-        readFile(Broker.CENTREON_BROKER_LOGS_PATH, (err, data) => {
+        readFile(Broker.CENTREON_BROKER_CENTRAL_LOGS_PATH, (err, data) => {
             if (err) {
                 reject(err);
                 return;
@@ -248,7 +248,7 @@ it('repeat 20 times start/stop cbd with a wrong configuration in sql', async () 
         expect(await broker.checkCoredump()).toBeFalsy()
     }
     let p = new Promise((resolve, reject) => {
-        readFile(Broker.CENTREON_BROKER_LOGS_PATH, (err, data) => {
+        readFile(Broker.CENTREON_BROKER_CENTRAL_LOGS_PATH, (err, data) => {
             if (err) {
                 reject(err);
                 return;

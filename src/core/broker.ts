@@ -2,13 +2,12 @@ import shell from 'shelljs'
 import psList from 'ps-list'
 import files from 'fs'
 import fs from 'fs/promises'
-import { once } from 'events'
 import { ChildProcess } from 'child_process'
 import sleep from 'await-sleep';
 import path from 'path';
 import { strict as assert } from 'assert';
+import { SIGHUP } from 'constants';
 
-const { exec } = require("child_process");
 
 export class Broker {
     private instanceCount : number
@@ -19,9 +18,11 @@ export class Broker {
     static CENTREON_BROKER_UID = parseInt(shell.exec('id -u centreon-broker'))
     static CENTREON_ENGINE_UID = parseInt(shell.exec('id -u centreon-engine'))
     static CENTREON_ENGINE_GID = parseInt(shell.exec('id -g centreon-engine'))
-    static CENTREON_BROKER_LOGS_PATH = `/var/log/centreon-broker/central-broker-master.log`
+    static CENTREON_BROKER_CENTRAL_LOGS_PATH = `/var/log/centreon-broker/central-broker-master.log`
+    static CENTREON_BROKER_RRD_LOGS_PATH = `/var/log/centreon-broker/central-rrd-master.log`
     static CENTREON_MODULE_LOGS_PATH = `/var/log/centreon-broker/central-module-master.log`
-    static CENTRON_BROKER_CONFIG_PATH = `/etc/centreon-broker/central-broker.json`
+    static CENTRON_BROKER_CENTRAL_CONFIG_PATH = `/etc/centreon-broker/central-broker.json`
+    static CENTRON_BROKER_RRD_CONFIG_PATH = `/etc/centreon-broker/central-rrd.json`
     static CENTRON_MODULE_CONFIG_PATH = `/etc/centreon-broker/central-module.json`
     static CENTRON_RRD_CONFIG_PATH = `/etc/centreon-broker/central-rrd.json`
 
@@ -37,10 +38,10 @@ export class Broker {
      *
      * @returns Promise<Boolean> true if correctly started, else false
      */
-    async start() : Promise<Boolean> {
-        this.process = shell.exec(`/usr/sbin/cbd ${Broker.CENTRON_BROKER_CONFIG_PATH}`, { async: true, uid: Broker.CENTREON_BROKER_UID })
+    async start() : Promise<boolean> {
+        this.process = shell.exec(`/usr/sbin/cbd ${Broker.CENTRON_BROKER_CENTRAL_CONFIG_PATH}`, { async: true, uid: Broker.CENTREON_BROKER_UID })
         if (this.instanceCount == 2)
-            this.rrdProcess = shell.exec(`/usr/sbin/cbd /etc/centreon-broker/central-rrd.json`, { async: true, uid: Broker.CENTREON_BROKER_UID })
+            this.rrdProcess = shell.exec(`/usr/sbin/cbd ${Broker.CENTRON_BROKER_RRD_CONFIG_PATH}`, { async: true, uid: Broker.CENTREON_BROKER_UID })
 
         return await this.isRunning(20);
     }
@@ -128,6 +129,14 @@ export class Broker {
         return false;
     }
 
+    async reload() {
+        if (await this.isRunning(5)) {
+            if (this.instanceCount == 2)
+                this.rrdProcess.kill(SIGHUP);
+            this.process.kill(SIGHUP);
+        }
+    }
+
     async checkCoredump() : Promise<boolean> {
         let retval;
         const cdList = shell.exec('ps ax').stdout.split('\n')
@@ -201,7 +210,7 @@ export class Broker {
      * very useful for resetting after doing some tests
      */
     static resetConfig() {
-        return shell.cp(path.join(__dirname, '../config/centreon-broker.json'), Broker.CENTRON_BROKER_CONFIG_PATH)
+        return shell.cp(path.join(__dirname, '../config/centreon-broker.json'), Broker.CENTRON_BROKER_CENTRAL_CONFIG_PATH)
     }
 
     /**
@@ -262,7 +271,7 @@ export class Broker {
     }
 
     static async getLogs() : Promise<String> {
-        return (await fs.readFile(Broker.CENTREON_BROKER_LOGS_PATH)).toString()
+        return (await fs.readFile(Broker.CENTREON_BROKER_CENTRAL_LOGS_PATH)).toString()
     }
 
     static async getLogsCentralModule() : Promise<String> {
@@ -271,8 +280,8 @@ export class Broker {
     }
 
     static clearLogs() : void {
-        if (files.existsSync(Broker.CENTREON_BROKER_LOGS_PATH))
-            files.rmSync(Broker.CENTREON_BROKER_LOGS_PATH)
+        if (files.existsSync(Broker.CENTREON_BROKER_CENTRAL_LOGS_PATH))
+            files.rmSync(Broker.CENTREON_BROKER_CENTRAL_LOGS_PATH)
     }
 
     static clearLogsCentralModule() : void {

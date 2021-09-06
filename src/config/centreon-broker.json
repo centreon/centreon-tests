@@ -17,7 +17,7 @@
             "loggers": {
                 "core": "info",
                 "config": "error",
-                "sql": "error",
+                "sql": "debug",
                 "processing": "error",
                 "perfdata": "error",
                 "bbdo": "error",

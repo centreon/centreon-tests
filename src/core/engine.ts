@@ -1,19 +1,26 @@
 
 import shell from 'shelljs'
 import psList from 'ps-list'
+import fs from 'fs/promises'
 import sleep from 'await-sleep'
 import { ChildProcess } from 'child_process'
-import { copyFileSync, existsSync, mkdir, mkdirSync, open, rmSync, write } from 'fs'
+import { copyFile, copyFileSync, existsSync, mkdir, mkdirSync, open, rmSync, write } from 'fs'
+import { resolve } from 'path/posix'
+import { SIGHUP } from 'constants'
 
 export class Engine {
     private process : ChildProcess;
+    static hostgroup : number[] = [];
+    static last_host_id : number = 0;
+    static servicesByHost : number = 50;
+    static nbCommands : number = 50;
+    static CENTREON_ENGINE_GID = parseInt(shell.exec('id -g centreon-engine'));
     static CENTREON_ENGINE_UID = parseInt(shell.exec('id -u centreon-engine'));
     static CENTRON_ENGINE_CONFIG_PATH = '/etc/centreon-engine/centengine.cfg';
     static CENTREON_ENGINE_HOME = '/var/lib/centreon-engine-tests';
-
-    constructor() {
-
-    }
+    static CENTREON_ENGINE_CONFIG_DIR = '/src/config/centreon-engine';
+    static CENTREON_ENGINE_LOGS_PATH = '/var/log/centreon-engine/centengine.log';
+    constructor() { }
 
     /**
      * this function will start a new centreon engine
@@ -21,27 +28,40 @@ export class Engine {
      *
      * @returns Promise<Boolean> true if correctly started, else false
      */
-    async start() {
+    async start() : Promise<boolean> {
         this.process = shell.exec(`/usr/sbin/centengine ${Engine.CENTRON_ENGINE_CONFIG_PATH}`, { async: true, uid: Engine.CENTREON_ENGINE_UID })
 
-        const isRunning = await this.isRunning(true, 20)
-        return isRunning;
+        return await this.isRunning(20);
     }
 
 
     /**
      * will stop current engine instance if already running
      *
-     * @returns Promise<Boolean> true if correctly stoped, else false
+     * @returns Promise<Boolean> true if correctly stopped, else false
      */
-    async stop() {
-        if (await this.isRunning(true, 5)) {
+    async stop() : Promise<boolean> {
+        if (await this.isRunning(5)) {
             this.process.kill()
-            const isRunning = await this.isRunning(false)
+            const isRunning = await this.isRunning();
             return !isRunning;
         }
 
-        return true;
+        return false;
+    }
+
+    static clearLogs() : void {
+        let p = [];
+        if (existsSync(Engine.CENTREON_ENGINE_LOGS_PATH))
+            p.push(fs.rm(Engine.CENTREON_ENGINE_LOGS_PATH));
+        p.push(fs.chown(Engine.CENTREON_ENGINE_LOGS_PATH, Engine.CENTREON_ENGINE_UID, Engine.CENTREON_ENGINE_GID));
+        Promise.all(p);
+    }
+
+    async reload() {
+        if (await this.isRunning(5)) {
+            this.process.kill(SIGHUP);
+        }
     }
 
     async checkCoredump() : Promise<boolean> {
@@ -64,11 +84,10 @@ export class Engine {
       * this function will check the list of all process running in current os
       * to check that the current instance of engine is correctly running or not
       *
-      * @param  {boolean=true} expected the expected value, true or false
       * @param  {number=15} seconds number of seconds to wait for process to show in processlist
       * @returns Promise<Boolean>
       */
-    async isRunning(expected : boolean = true, seconds : number = 15) : Promise<boolean> {
+    async isRunning(seconds : number = 15) : Promise<boolean> {
         let centreonEngineProcess;
 
         for (let i = 0; i < seconds * 2; ++i) {
@@ -76,16 +95,12 @@ export class Engine {
             const processList = await psList();
             centreonEngineProcess = processList.find((process) => process.pid == this.process.pid);
 
-            if (centreonEngineProcess && expected)
+            if (centreonEngineProcess)
                 return true;
-
-            else if (!centreonEngineProcess && !expect)
-                return false;
 
             await sleep(500)
         }
-
-        return !!centreonEngineProcess;
+        return false;
     }
 
     /**
@@ -151,6 +166,9 @@ export class Engine {
 
 
     static createHost(id : number) : string {
+        if (id > this.last_host_id)
+            this.last_host_id = id;
+
         let a = id % 255;
         let q = Math.floor(id / 255);
         let b = q % 255;
@@ -170,6 +188,18 @@ export class Engine {
     _SNMPCOMMUNITY                 public                                       
     _SNMPVERSION                   2c                                           
     _HOST_ID                       ${id}
+}
+`;
+        return retval;
+    }
+
+    static createHostgroup(id : number, children : string[]) {
+        let members = children.join(',');
+        let retval = `define hostgroup {
+    hostgroup_id                    ${id}
+    hostgroup_name                  hostgroup_${id}
+    alias                           hostgroup_${id}
+    members                         ${members}
 }
 `;
         return retval;
@@ -213,8 +243,7 @@ export class Engine {
         return retval;
     }
 
-    static async buildConfig(hosts : number = 50, servicesByHost : number = 20) : Promise<boolean> {
-        let nbCommands = 50;
+    static async buildConfig(hosts : number = 50, servicesByHost : number = this.servicesByHost) : Promise<boolean> {
         let configDir = process.cwd() + '/src/config/centreon-engine';
         let scriptDir = process.cwd() + '/src/config/scripts';
         if (existsSync(configDir)) {
@@ -222,7 +251,7 @@ export class Engine {
         }
 
         let p = new Promise((resolve, reject) => {
-            let count = hosts + hosts * servicesByHost + nbCommands + 1 /* for notification command */;
+            let count = hosts + hosts * servicesByHost + this.nbCommands + 1 /* for notification command */;
             mkdir(configDir, () => {
                 open(configDir + '/hosts.cfg', 'w', (err, fd) => {
                     if (err) {
@@ -248,7 +277,7 @@ export class Engine {
                                     return;
                                 }
                                 for (let j = 1; j <= servicesByHost; ++j) {
-                                    write(fd, Buffer.from(Engine.createService(i, j, nbCommands)), (err) => {
+                                    write(fd, Buffer.from(Engine.createService(i, j, this.nbCommands)), (err) => {
                                         if (err) {
                                             reject(err);
                                             return;
@@ -264,7 +293,7 @@ export class Engine {
                         });
                     }
                     open(configDir + '/commands.cfg', 'w', (err, fd) => {
-                        for (let i = 1; i <= nbCommands; ++i) {
+                        for (let i = 1; i <= this.nbCommands; ++i) {
                             write(fd, Buffer.from(Engine.createCommand(i)), (err) => {
                                 if (err) {
                                     reject(err);
@@ -331,5 +360,109 @@ define command {
                 return false
             });
         return retval;
+    }
+
+    static async addHostgroup(index : number, members : string[]) : Promise<boolean> {
+        let p = new Promise((resolve, reject) => {
+            if (Engine.hostgroup.indexOf(index) < 0) {
+                open(process.cwd() + this.CENTREON_ENGINE_CONFIG_DIR + '/hostgroups.cfg', 'a+', (err, fd) => {
+                    if (err) {
+                        reject(err);
+                    }
+                    else {
+                        write(fd, Buffer.from(Engine.createHostgroup(index, members)), (err) => {
+                            if (err) {
+                                reject(err);
+                            }
+                            Engine.hostgroup.push(index);
+                            copyFile(process.cwd() + this.CENTREON_ENGINE_CONFIG_DIR + '/hostgroups.cfg', '/etc/centreon-engine/hostgroups.cfg', () => {
+                                resolve(true);
+                            })
+                        });
+                    }
+                });
+            }
+        });
+
+        let retval = p.then(ok => {
+            return true;
+        }).catch(err => {
+            console.log(err);
+            return false;
+        });
+        return retval;
+    }
+
+    static async addHost() : Promise<string> {
+        let p = new Promise((resolve, reject) => {
+            let index = this.last_host_id + 1;
+            open(process.cwd() + this.CENTREON_ENGINE_CONFIG_DIR + '/hosts.cfg', 'a+', (err, fd) => {
+                if (err) {
+                    reject(err);
+                }
+                else {
+                    write(fd, Buffer.from(Engine.createHost(index)), (err) => {
+                        if (err) {
+                            reject(err);
+                        }
+                        open(process.cwd() + this.CENTREON_ENGINE_CONFIG_DIR + '/services.cfg', 'a', (err, fd) => {
+                            if (err) {
+                                reject(err);
+                            }
+                            let p = [];
+                            for (let j = 1; j <= this.servicesByHost; ++j) {
+                                p.push(write(fd, Buffer.from(Engine.createService(index, j, this.nbCommands)), (err) => {
+                                    if (err) {
+                                        reject(err);
+                                        return;
+                                    }
+                                }));
+                            }
+                            Promise.all(p);
+                            copyFile(process.cwd() + this.CENTREON_ENGINE_CONFIG_DIR + '/hosts.cfg', '/etc/centreon-engine/hosts.cfg', () => {
+                                copyFile(process.cwd() + this.CENTREON_ENGINE_CONFIG_DIR + '/services.cfg', '/etc/centreon-engine/services.cfg', () => {
+                                    resolve(index);
+                                });
+                            });
+                        });
+                    });
+                }
+            });
+        });
+
+        let retval = p.then(index => {
+            return "host_" + index;
+        }).catch(err => {
+            console.log(err);
+            return "";
+        });
+        return retval;
+    }
+
+    static async getLogs() : Promise<string> {
+        return (await fs.readFile(Engine.CENTREON_ENGINE_LOGS_PATH)).toString();
+    }
+
+    /**
+     *  this function is useful for checking that a log file contain some string
+     * @param  {Array<string>} strings list of string to check, every string in this array must be found in logs file
+     * @param  {number} seconds=15 number of second to wait before returning
+     * @returns {Promise<Boolean>} true if found, else false
+     */
+     static async checkLogFileContains(strings : Array<string>, seconds : number = 15) : Promise<boolean> {
+
+        for (let i = 0; i < seconds * 10; ++i) {
+            const logs = await Engine.getLogs();
+
+            let retval = strings.every((value) => {
+                return logs.includes(value);
+            });
+
+            if (retval)
+                return true;
+            await sleep(100)
+        }
+
+        return false;
     }
 }
