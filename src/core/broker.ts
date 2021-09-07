@@ -26,7 +26,7 @@ export class Broker {
     static CENTRON_MODULE_CONFIG_PATH = `/etc/centreon-broker/central-module.json`
     static CENTRON_RRD_CONFIG_PATH = `/etc/centreon-broker/central-rrd.json`
 
-    lastMatchingLog: number;
+    lastMatchingLog : number;
 
     constructor(count : number = 2) {
         assert(count == 1 || count == 2)
@@ -241,49 +241,61 @@ export class Broker {
     async checkLogFileContains(strings : Array<string>, seconds : number = 15) : Promise<boolean> {
         let from = this.lastMatchingLog;
 
-        let p = new Promise((resolve, reject) => {
-            const rl = readline.createInterface({
-                input: createReadStream(Broker.CENTREON_BROKER_CENTRAL_LOGS_PATH),
-                terminal: false
-            });
-            let first = strings.shift();
-            rl.on('line', line => {
-                let d = line.substring(1);
-                let dd = parseInt(d);
-                if (dd >= from) {
-                    if (d.includes(first)) {
-                        this.lastMatchingLog = dd;
-                        if (strings.length === 0) {
-                            resolve(true);
+        /* 3 possible values:
+          * 0 => failed
+          * 1 => succeed
+          * 2 => start again (the file reached its end without success).
+          */
+        let retval : Promise<number>;
+
+        do {
+            let p = new Promise((resolve, reject) => {
+                const rl = readline.createInterface({
+                    input: createReadStream(Broker.CENTREON_BROKER_CENTRAL_LOGS_PATH),
+                    terminal: false
+                });
+                rl.on('line', line => {
+                    let d = line.substring(1, 24);
+                    let dd = Date.parse(d) / 1000;
+                    if (dd >= from) {
+                        let idx = strings.findIndex(s => line.includes(s));
+                        if (idx >= 0) {
+                            this.lastMatchingLog = dd;
+                            strings.splice(idx, 1);
+                            if (strings.length === 0) {
+                                resolve(true);
+                                return;
+                            }
+                        }
+                        if (dd - from > seconds) {
+                            reject(`Cannot find strings <<${strings.join(', ')}>> in centengine.log`);
                             return;
                         }
-                        first = strings.shift();
                     }
-                    if (dd - from > seconds)
-                        reject(`Cannot find string ${first} in centengine.log`);
+                });
+                rl.on('close', () => {
+                    reject('File closed');
+                })
+            });
+
+            retval = p.then((value : boolean) => { 
+                if (!value) {
+                    console.log(`Cannot find strings <<${strings.join(', ')}>> in broker logs`);
+                    return 0;
+                }
+                else
+                    return 1;
+                 }).catch(err => {
+                if (err == 'File closed')
+                    return 2;
+                else {
+                    console.log(`Cannot find strings <<${strings.join(', ')}>> in broker logs`);
+                    return 0;
                 }
             });
-        });
-
-        let retval = p.then((value : boolean) => { return value; });
-        return retval;
+        } while ((await retval) == 2);
+        return (await retval) > 0;
     }
-/*
-        for (let i = 0; i < seconds * 10; ++i) {
-            const logs = await Broker.getLogs()
-
-            let retval = strings.every((value) => {
-                return logs.includes(value);
-            });
-
-            if (retval)
-                return true;
-            await sleep(100)
-        }
-
-        return false;
-        //throw Error(`log file ${Broker.CENTREON_BROKER_LOGS_PATH} does not contain expected strings ${strings.toString()}`)
-    }*/
 
     static async checkLogFileCentralModuleContains(strings : Array<string>, seconds : number = 15) : Promise<boolean> {
 
@@ -339,16 +351,13 @@ export class Broker {
      * @param  {void} 
      * @returns {Promise<Boolean>} true if found, else false
      */
-    static isServiceRunning() : Boolean {
+    static isServiceRunning() : boolean {
         /* checks if we have an active systemctl status */
         const cdList = shell.exec('systemctl status cbd').stdout.split('\n')
-        let status;
-        status = cdList.find(line => line.includes('running'))
-
-        if (status)
-            return true
+        if (cdList.find(line => line.includes('running')))
+            return true;
         else
-            return false
+            return false;
     }
 
     /**
@@ -356,15 +365,15 @@ export class Broker {
      * @param  {void} 
      * @returns {Boolean} true if found, else false
      */
-    static isInstancesRunning() : Boolean {
-        let instances = shell.exec('ps ax |grep -v grep | grep /usr/sbin/cbd').stdout.split('\n')
+    static isInstancesRunning() : boolean {
+        let instances = shell.exec('ps ax |grep -v grep | grep "/sbin/cbd"').stdout.split('\n')
 
         instances = instances.filter(String)
 
-        if (instances != undefined || instances.length == 0)
-            return true
+        if (instances != undefined && instances.length)
+            return true;
         else
-            return false
+            return false;
     }
 
     /**
@@ -372,27 +381,22 @@ export class Broker {
      * @param  {void} 
      * @returns {void} true if found, else false
      */
-    static closeInstances() : void {
-        let instances = shell.exec('ps ax |grep -v grep | grep /usr/sbin/cbd').stdout.split('\n')
-        instances = instances.filter(String)
-
-        for (let i of instances) {
-            let str = i.trim().split(" ", 1)
-            let pid = +str
-            console.log(i, pid)
-            shell.exec('kill -9 ' + pid)
-        }
+    static async closeInstances() : Promise<void> {
+        const processList = await psList();
+        processList.forEach(process => {
+            if (process.name == 'cbd')
+                shell.exec(`kill -9 ${process.pid}`);
+        });
     }
 
-    static cleanAllInstances() : void {
+    static async cleanAllInstances() : Promise<void> {
         /* close cbd if running */
-        if (Broker.isServiceRunning()) {
+        if (Broker.isServiceRunning())
             shell.exec('systemctl stop cbd')
-        }
 
         /* closes instances of cbd if running */
         if (Broker.isInstancesRunning()) {
-            Broker.closeInstances()
+            await Broker.closeInstances()
         }
     }
 }

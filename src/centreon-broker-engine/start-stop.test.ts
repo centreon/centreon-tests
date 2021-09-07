@@ -2,33 +2,34 @@ import shell from 'shelljs';
 import { Broker } from '../core/broker';
 import { Engine } from '../core/engine';
 import { isBrokerAndEngineConnected } from '../core/brokerEngine';
+import sleep from 'await-sleep';
 
 shell.config.silent = true;
 
 describe('engine and broker testing in same time', () => {
 
-    beforeEach(() => {
-        Broker.cleanAllInstances();
-        Engine.cleanAllInstances();
+    beforeEach(async () => {
+        await Engine.cleanAllInstances();
+        await Broker.cleanAllInstances();
 
         Broker.clearLogs();
         Broker.resetConfig();
         Engine.clearLogs();
 
-        if (Broker.isServiceRunning() || Engine.isRunning()) {
+        if (Broker.isInstancesRunning() || Engine.isRunning()) {
             console.log("program could not stop cbd or centengine")
             process.exit(1)
         }
-
     })
 
     afterAll(() => {
         beforeEach(() => {
-            Broker.cleanAllInstances();
             Engine.cleanAllInstances();
+            Broker.cleanAllInstances();
 
-            Broker.clearLogs()
-            Broker.resetConfig()
+            Broker.clearLogs();
+            Broker.resetConfig();
+            Engine.clearLogs();
         })
     })
 
@@ -111,32 +112,55 @@ describe('engine and broker testing in same time', () => {
 
         const engine = new Engine();
         expect(await engine.buildConfig()).toBeTruthy();
-        await engine.start();
+        expect(await engine.start()).toBeTruthy();
+        console.log("engine started");
+
         await engine.checkLogFileContains(["Event broker module '/usr/lib64/nagios/cbmod.so' initialized successfully"], 120);
+        console.log("cbmod loaded");
 
         await expect(isBrokerAndEngineConnected()).resolves.toBeTruthy()
+        console.log("Broker and Engine connected");
 
         await expect(engine.addHostgroup(1, ['host_1', 'host_2', 'host_3'])).resolves.toBeTruthy();
-        await engine.reload();
-        await broker.reload();
-        await engine.checkLogFileContains(["Event broker module '/usr/lib64/nagios/cbmod.so' initialized successfully"], 120);
-        await expect(isBrokerAndEngineConnected()).resolves.toBeTruthy();
-
-        let host_name = await engine.addHost();
-        await expect(engine.addHostgroup(2, [host_name])).resolves.toBeTruthy();
+        console.log("New host group 1");
         let p = [engine.reload(), broker.reload()];
         await Promise.all(p);
+        console.log("Engine and broker reloaded");
+
+        await engine.checkLogFileContains(["Event broker module '/usr/lib64/nagios/cbmod.so' initialized successfully"], 120);
+        console.log("cbmod module reloaded");
         await expect(isBrokerAndEngineConnected()).resolves.toBeTruthy();
+        console.log("Broker and Engine connected");
+
+        let host_name = await engine.addHost();
+
+        await expect(engine.addHostgroup(2, [host_name, 'host_2', 'host_6'])).resolves.toBeTruthy();
+        await expect(engine.addHostgroup(3, [host_name, 'host_1', 'host_4'])).resolves.toBeTruthy();
+        console.log("New host groups 2 and 3 with this host and others")
+        p = [engine.reload(), broker.reload()];
+        await Promise.all(p);
+        console.log("Engine and Broker reloaded")
+        await expect(isBrokerAndEngineConnected()).resolves.toBeTruthy();
+        console.log("Engine and Broker connected")
 
         await expect(broker.checkLogFileContains([
             "SQL: enabling membership of host 3 to host group 1 on instance 1",
             "SQL: enabling membership of host 2 to host group 1 on instance 1",
             "SQL: enabling membership of host 1 to host group 1 on instance 1",
             "SQL: processing host event (poller: 1, host: 51, name: host_51",
-            "SQL: enabling membership of host 51 to host group 2 on instance 1"],
-            120)).resolves.toBeTruthy();
+            "SQL: enabling membership of host 6 to host group 2 on instance 1",
+            "SQL: enabling membership of host 2 to host group 2 on instance 1",
+            "SQL: enabling membership of host 51 to host group 2 on instance 1",
+            "SQL: enabling membership of host 4 to host group 3 on instance 1",
+            "SQL: enabling membership of host 1 to host group 3 on instance 1",
+            "SQL: enabling membership of host 51 to host group 3 on instance 1"],
+            60)).resolves.toBeTruthy();
+        console.log("Broker log contains all needed data")
 
+        await sleep(100000);
         await engine.stop();
+        console.log("Engine stopped");
         await broker.stop();
+        console.log("Broker stopped");
     }, 300000);
 });

@@ -23,7 +23,7 @@ export class Engine {
     lastMatchingLog : number;
     pid : number = 0;
 
-    constructor() { 
+    constructor() {
         this.lastMatchingLog = Math.floor(Date.now() / 1000);
     }
 
@@ -55,10 +55,8 @@ export class Engine {
     }
 
     static clearLogs() : void {
-        let p = [];
         if (existsSync(Engine.CENTREON_ENGINE_LOGS_PATH))
-            p.push(fs.rm(Engine.CENTREON_ENGINE_LOGS_PATH));
-        Promise.all(p);
+            rmSync(Engine.CENTREON_ENGINE_LOGS_PATH);
     }
 
     async reload() {
@@ -127,16 +125,15 @@ export class Engine {
         });
     }
 
-    static cleanAllInstances() : void {
+    static async cleanAllInstances() : Promise<void> {
         /* close centengine if running */
-        if (this.isRunning())
+        if (Engine.isRunning())
             shell.exec('systemctl stop centengine')
 
         /* closes instances of centengine if running */
-        if (this.isRunning()) {
-            this.closeInstances()
+        if (Engine.isRunning()) {
+            await Engine.closeInstances()
         }
-
     }
 
 
@@ -429,33 +426,60 @@ define command {
             await sleep(1000);
             seconds--;
         }
+
         let from = this.lastMatchingLog;
+        /* 3 possible values:
+         * 0 => failed
+         * 1 => succeed
+         * 2 => start again (the file reached its end without success).
+         */
+        let retval : Promise<number>;
 
-        let p = new Promise((resolve, reject) => {
-            const rl = readline.createInterface({
-                input: createReadStream(Engine.CENTREON_ENGINE_LOGS_PATH),
-                terminal: false
-            });
-            let first = strings.shift();
-            rl.on('line', line => {
-                let d = line.substring(1);
-                let dd = parseInt(d);
-                if (dd >= from) {
-                    if (d.includes(first)) {
-                        this.lastMatchingLog = dd;
-                        if (strings.length === 0) {
-                            resolve(true);
-                            return;
+        do {
+            let p = new Promise((resolve, reject) => {
+                const rl = readline.createInterface({
+                    input: createReadStream(Engine.CENTREON_ENGINE_LOGS_PATH),
+                    terminal: false
+                });
+                rl.on('line', line => {
+                    let d = line.substring(1);
+                    let dd = parseInt(d);
+                    if (dd >= from) {
+                        let idx = strings.findIndex(s => line.includes(s));
+                        if (idx >= 0) {
+                            this.lastMatchingLog = dd;
+                            strings.splice(idx, 1);
+                            if (strings.length === 0) {
+                                resolve(true);
+                                return;
+                            }
                         }
-                        first = strings.shift();
+                        if (dd - from > seconds)
+                            reject(`Cannot find strings <<${strings.join(', ')}>> in centengine.log`);
                     }
-                    if (dd - from > seconds)
-                        reject(`Cannot find string ${first} in centengine.log`);
-                }
+                });
+                rl.on('close', () => {
+                    reject('File closed');
+                })
             });
-        });
 
-        let retval = p.then((value : boolean) => { return value; });
-        return retval;
+            retval = p.then((value : boolean) => {
+                if (!value) {
+                    console.log(`Cannot find strings <<${strings.join(', ')}>> in engine logs`);
+                    return 0;
+                }
+                else
+                    return 1;
+            })
+                .catch(err => {
+                    if (err == 'File closed')
+                        return 2;
+                    else {
+                        console.log(`Cannot find strings <<${strings.join(', ')}>> in engine logs`);
+                        return 0;
+                    }
+                });
+        } while ((await retval) == 2);
+        return (await retval) > 0;
     }
 }
