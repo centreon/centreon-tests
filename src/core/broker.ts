@@ -30,13 +30,13 @@ export class Broker {
     static CENTRON_MODULE_CONFIG_PATH = `/etc/centreon-broker/central-module.json`
     static CENTRON_RRD_CONFIG_PATH = `/etc/centreon-broker/central-rrd.json`
 
-    lastMatchingLog : number[];
+    static lastMatchingLog : { [index: number]: number} = [Math.floor(Date.now() / 1000), Math.floor(Date.now() / 1000), Math.floor(Date.now() / 1000)];
 
     constructor(count : number = 2) {
         assert(count == 1 || count == 2)
         this.instanceCount = count
         let d = Math.floor(Date.now() / 1000);
-        this.lastMatchingLog = [d, d, d];
+        Broker.lastMatchingLog = [d, d, d];
     }
 
     /**
@@ -256,12 +256,7 @@ export class Broker {
                 break;
         }
 
-        while (seconds > 0 && !existsSync(logname)) {
-            sleep(1000);
-            seconds--;
-        }
-
-        let from = this.lastMatchingLog[b];
+        let from = Broker.lastMatchingLog[b];
 
         /* 3 possible values:
           * 0 => failed
@@ -282,7 +277,7 @@ export class Broker {
                     if (dd >= from) {
                         let idx = strings.findIndex(s => line.includes(s));
                         if (idx >= 0) {
-                            this.lastMatchingLog[b] = dd;
+                            Broker.lastMatchingLog[b] = dd;
                             strings.splice(idx, 1);
                             if (strings.length === 0) {
                                 resolve(true);
@@ -320,20 +315,22 @@ export class Broker {
     }
 
     async checkCentralLogContains(strings : string[], seconds : number = 15) : Promise<boolean> {
-        return this.checkLogFileContains(BrokerType.central, strings, seconds);
+        return await this.checkLogFileContains(BrokerType.central, strings, seconds);
     }
 
     async checkRrdLogContains(strings : string[], seconds : number = 15) : Promise<boolean> {
-        return this.checkLogFileContains(BrokerType.rrd, strings, seconds);
+        return await this.checkLogFileContains(BrokerType.rrd, strings, seconds);
     }
 
     async checkModuleLogContains(strings : string[], seconds : number = 15) : Promise<boolean> {
-        return this.checkLogFileContains(BrokerType.module, strings, seconds);
+        return await this.checkLogFileContains(BrokerType.module, strings, seconds);
     }
 
     static clearLogs(type : BrokerType) : void {
         let logname : string;
         let uid : number;
+        let d = Math.floor(Date.now() / 1000);
+        Broker.lastMatchingLog[type] = d;
         switch (type) {
             case BrokerType.central:
                 logname = Broker.CENTREON_BROKER_CENTRAL_LOGS_PATH;
