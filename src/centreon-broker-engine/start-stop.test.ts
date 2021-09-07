@@ -1,5 +1,5 @@
 import shell from 'shelljs';
-import { Broker } from '../core/broker';
+import { Broker, BrokerType } from '../core/broker';
 import { Engine } from '../core/engine';
 import { isBrokerAndEngineConnected } from '../core/brokerEngine';
 import sleep from 'await-sleep';
@@ -12,7 +12,7 @@ describe('engine and broker testing in same time', () => {
         await Engine.cleanAllInstances();
         await Broker.cleanAllInstances();
 
-        Broker.clearLogs();
+        Broker.clearLogs(BrokerType.central);
         Broker.resetConfig();
         Engine.clearLogs();
 
@@ -23,13 +23,13 @@ describe('engine and broker testing in same time', () => {
     })
 
     afterAll(() => {
-        beforeEach(() => {
-            Engine.cleanAllInstances();
-            Broker.cleanAllInstances();
+        beforeEach(async () => {
+            await Engine.cleanAllInstances();
+            await Broker.cleanAllInstances();
 
-            Broker.clearLogs();
-            Broker.resetConfig();
-            Engine.clearLogs();
+            //Broker.clearLogs();
+            //Broker.resetConfig();
+            //Engine.clearLogs();
         })
     })
 
@@ -38,7 +38,7 @@ describe('engine and broker testing in same time', () => {
         const broker = new Broker(1);
         await expect(broker.start()).resolves.toBeTruthy()
 
-        const engine = new Engine()
+        const engine = new Engine();
         await expect(engine.start()).resolves.toBeTruthy()
 
         await expect(isBrokerAndEngineConnected()).resolves.toBeTruthy()
@@ -92,7 +92,7 @@ describe('engine and broker testing in same time', () => {
 
         await expect(isBrokerAndEngineConnected()).resolves.toBeTruthy()
 
-        await expect(broker.checkLogFileContains(['[core] [error] failover: global error: storage: Unable to initialize the storage connection to the database'])).resolves.toBeTruthy()
+        await expect(broker.checkCentralLogContains(['[core] [error] failover: global error: storage: Unable to initialize the storage connection to the database'])).resolves.toBeTruthy()
 
         await expect(broker.stop()).resolves.toBeTruthy();
         await expect(engine.stop()).resolves.toBeTruthy();
@@ -132,35 +132,25 @@ describe('engine and broker testing in same time', () => {
         await expect(isBrokerAndEngineConnected()).resolves.toBeTruthy();
         console.log("Broker and Engine connected");
 
-        let host_name = await engine.addHost();
+        let hostnames : string[] = ['host_1', 'host_2'];
+        let logs : string[] = [];
 
-        await expect(engine.addHostgroup(2, [host_name, 'host_2', 'host_6'])).resolves.toBeTruthy();
-        await expect(engine.addHostgroup(3, [host_name, 'host_1', 'host_4'])).resolves.toBeTruthy();
-        console.log("New host groups 2 and 3 with this host and others")
+        for (let i = 0; i < 50; i++) {
+            let host = await engine.addHost();
+            hostnames.push(host.name);
+            let group = await engine.addHostgroup(i + 2, hostnames);
+            logs.push(`SQL: enabling membership of host ${host.id} to host group ${group.id} on instance 1`);
+            logs.push(`SQL: processing host event (poller: 1, host: ${host.id}, name: ${host.name}`);
+        }
+        console.log("50 new hosts and 50 new hostgroups");
+
         p = [engine.reload(), broker.reload()];
         await Promise.all(p);
-        console.log("Engine and Broker reloaded")
+        console.log("Engine and Broker reloaded");
         await expect(isBrokerAndEngineConnected()).resolves.toBeTruthy();
-        console.log("Engine and Broker connected")
+        console.log("Engine and Broker connected");
 
-        await expect(broker.checkLogFileContains([
-            "SQL: enabling membership of host 3 to host group 1 on instance 1",
-            "SQL: enabling membership of host 2 to host group 1 on instance 1",
-            "SQL: enabling membership of host 1 to host group 1 on instance 1",
-            "SQL: processing host event (poller: 1, host: 51, name: host_51",
-            "SQL: enabling membership of host 6 to host group 2 on instance 1",
-            "SQL: enabling membership of host 2 to host group 2 on instance 1",
-            "SQL: enabling membership of host 51 to host group 2 on instance 1",
-            "SQL: enabling membership of host 4 to host group 3 on instance 1",
-            "SQL: enabling membership of host 1 to host group 3 on instance 1",
-            "SQL: enabling membership of host 51 to host group 3 on instance 1"],
-            60)).resolves.toBeTruthy();
-        console.log("Broker log contains all needed data")
-
-        await sleep(100000);
-        await engine.stop();
-        console.log("Engine stopped");
-        await broker.stop();
-        console.log("Broker stopped");
-    }, 300000);
+        await expect(broker.checkCentralLogContains(logs, 60)).resolves.toBeTruthy();
+        console.log("Broker log contains all needed data");
+    }, 120000);
 });

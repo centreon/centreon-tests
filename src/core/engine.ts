@@ -334,7 +334,7 @@ define command {
         return retval;
     }
 
-    async addHostgroup(index : number, members : string[]) : Promise<boolean> {
+    async addHostgroup(index : number, members : string[]) : Promise<{ id : number, members : string[] }> {
         let p = new Promise((resolve, reject) => {
             if (this.hostgroup.indexOf(index) < 0) {
                 open(process.cwd() + this.CENTREON_ENGINE_CONFIG_DIR + '/hostgroups.cfg', 'a+', (err, fd) => {
@@ -357,15 +357,15 @@ define command {
         });
 
         let retval = p.then(ok => {
-            return true;
+            return { id: index, members: members };
         }).catch(err => {
             console.log(err);
-            return false;
+            throw err;
         });
         return retval;
     }
 
-    async addHost() : Promise<string> {
+    async addHost() : Promise<{ name : string, id : number }> {
         let p = new Promise((resolve, reject) => {
             let index = this.last_host_id + 1;
             open(process.cwd() + this.CENTREON_ENGINE_CONFIG_DIR + '/hosts.cfg', 'a+', (err, fd) => {
@@ -402,11 +402,10 @@ define command {
             });
         });
 
-        let retval = p.then(index => {
-            return "host_" + index;
+        let retval = p.then((index : number) => {
+            return { name: "host_" + index, id: index };
         }).catch(err => {
-            console.log(err);
-            return "";
+            throw err;
         });
         return retval;
     }

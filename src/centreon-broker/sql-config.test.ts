@@ -1,16 +1,13 @@
 import sleep from 'await-sleep';
 import shell from 'shelljs';
-import { once } from 'events'
 import { Broker } from '../core/broker';
 import { Engine } from '../core/engine';
-import fs from 'fs/promises'
-import { readFile } from 'fs';
-import { doesNotReject } from 'assert/strict';
+
 shell.config.silent = true;
 
 beforeEach(async () => {
-    Broker.cleanAllInstances();
-    Engine.cleanAllInstances();
+    await Broker.cleanAllInstances();
+    await Engine.cleanAllInstances();
 
     Broker.resetConfig();
     Broker.clearLogs();
@@ -18,9 +15,6 @@ beforeEach(async () => {
 
 afterEach(async () => {
     Broker.cleanAllInstances();
-    Engine.cleanAllInstances();
-
-    Broker.resetConfig();
 })
 
 it('should deny access when database name exists but is not the good one for sql output', async () => {
@@ -34,7 +28,7 @@ it('should deny access when database name exists but is not the good one for sql
     const isStarted = await broker.start();
 
     expect(isStarted).toBeTruthy()
-    expect(await Broker.checkLogFileContains(["Table 'centreon.instances' doesn't exist"])).toBeTruthy()
+    expect(await broker.checkLogFileContains(["Table 'centreon.instances' doesn't exist"])).toBeTruthy()
 
     const isStopped = await broker.stop()
     console.log("isStopped = " + isStopped);
@@ -52,7 +46,7 @@ it('should deny access when database name exists but is not the good one for sto
     const broker = new Broker();
     expect(await broker.start()).toBeTruthy();
 
-    expect(await Broker.checkLogFileContains(['[sql] [error] storage: rebuilder: Unable to connect to the database: storage: rebuilder: could not fetch index to rebuild'])).toBeTruthy()
+    expect(await broker.checkLogFileContains(['[sql] [error] storage: rebuilder: Unable to connect to the database: storage: rebuilder: could not fetch index to rebuild'])).toBeTruthy()
 
     const isStopped = await broker.stop()
     expect(isStopped).toBeTruthy();
@@ -70,7 +64,7 @@ it('should deny access when database name does not exists for sql output', async
     const isStarted = await broker.start();
 
     expect(isStarted).toBeTruthy()
-    expect(await Broker.checkLogFileContains(['[core] [error] failover: global error: mysql_connection: error while starting connection'])).toBeTruthy()
+    expect(await broker.checkLogFileContains(['[core] [error] failover: global error: mysql_connection: error while starting connection'])).toBeTruthy()
 
     const isStopped = await broker.stop()
     expect(isStopped).toBeTruthy();
@@ -88,7 +82,7 @@ it('should deny access when database name does not exist for storage output', as
     const broker = new Broker();
     expect(await broker.start()).toBeTruthy();
 
-    expect(await Broker.checkLogFileContains(['[sql] [error] storage: rebuilder: Unable to connect to the database: mysql_connection: error while starting connection'])).toBeTruthy()
+    expect(await broker.checkLogFileContains(['[sql] [error] storage: rebuilder: Unable to connect to the database: mysql_connection: error while starting connection'])).toBeTruthy()
 
     const isStopped = await broker.stop()
     expect(isStopped).toBeTruthy();
@@ -106,7 +100,7 @@ it('should deny access when database user password is wrong for sql', async () =
 
     expect(await broker.isRunning()).toBeTruthy()
 
-    expect(await Broker.checkLogFileContains(['[core] [error] failover: global error: mysql_connection: error while starting connection'])).toBeTruthy()
+    expect(await broker.checkLogFileContains(['[core] [error] failover: global error: mysql_connection: error while starting connection'])).toBeTruthy()
 
     const isStopped = await broker.stop()
     expect(isStopped).toBeTruthy();
@@ -127,7 +121,7 @@ it('should log error when database name is not correct', async () => {
 
     expect(await broker.isRunning()).toBeTruthy()
 
-    expect(await Broker.checkLogFileContains(['[core] [error] failover: global error: mysql_connection: error while starting connection'])).toBeTruthy()
+    expect(await broker.checkLogFileContains(['[core] [error] failover: global error: mysql_connection: error while starting connection'])).toBeTruthy()
 
     const isStopped = await broker.stop()
     expect(isStopped).toBeTruthy();
@@ -152,7 +146,7 @@ it('multi connections step 1', async () => {
     const broker = new Broker();
     expect(await broker.start()).toBeTruthy()
 
-    expect(await Broker.checkLogFileContains(['[sql] [info] mysql connector configured with 4 connection(s)'])).toBeTruthy()
+    expect(await broker.checkLogFileContains(['[sql] [info] mysql connector configured with 4 connection(s)'])).toBeTruthy()
     expect(await broker.stop()).toBeTruthy();
     expect(await broker.checkCoredump()).toBeFalsy()
 }, 60000)
@@ -175,7 +169,7 @@ it('multi connections step 2', async () => {
     const broker = new Broker();
     expect(await broker.start()).toBeTruthy()
 
-    expect(await Broker.checkLogFileContains(['[sql] [info] mysql connector configured with 5 connection(s)'])).toBeTruthy()
+    expect(await broker.checkLogFileContains(['[sql] [info] mysql connector configured with 5 connection(s)'])).toBeTruthy()
     expect(await broker.stop()).toBeTruthy();
     expect(await broker.checkCoredump()).toBeFalsy()
 }, 60000)
@@ -185,6 +179,7 @@ it('mariadb server down', async () => {
     expect(await broker.start()).toBeTruthy()
 
     for (let i = 0; i < 10; ++i) {
+        console.log(`Step ${i + 1}/10`);
         shell.exec('service mysqld stop')
         await sleep(10000)
         shell.exec('service mysqld start')
@@ -205,29 +200,16 @@ it('repeat 20 times start/stop cbd with a wrong configuration in perfdata', asyn
 
     const broker = new Broker();
     for (let i = 0; i < 20; ++i) {
+        console.log(`Step ${i + 1}/20`);
         const isStarted = await broker.start();
-        expect(isStarted).toBeTruthy()
-        expect(await broker.isRunning()).toBeTruthy()
+        expect(isStarted).toBeTruthy();
+        expect(await broker.isRunning()).toBeTruthy();
         await sleep(2000);
-        const isStopped = await broker.stop()
+        const isStopped = await broker.stop();
         expect(isStopped).toBeTruthy();
-        expect(await broker.checkCoredump()).toBeFalsy()
+        expect(await broker.checkCoredump()).toBeFalsy();
     }
-    let p = new Promise((resolve, reject) => {
-        readFile(Broker.CENTREON_BROKER_CENTRAL_LOGS_PATH, (err, data) => {
-            if (err) {
-                reject(err);
-                return;
-            }
-            if (data) {
-                if (data.toString().includes('[sql] [error] storage: rebuilder: Unable to connect to the database: mysql_connection: error while starting connection')) {
-                    resolve(true);
-                    return;
-                }
-            }
-        });
-    });
-    expect(p.then((value) => { return value; }).catch(() => { return false; })).toBeTruthy();
+    expect(await broker.checkLogFileContains(['[sql] [error] storage: rebuilder: Unable to connect to the database: mysql_connection: error while starting connection'])).toBeTruthy();
 }, 300000)
 
 it('repeat 20 times start/stop cbd with a wrong configuration in sql', async () => {
@@ -239,28 +221,14 @@ it('repeat 20 times start/stop cbd with a wrong configuration in sql', async () 
 
     const broker = new Broker();
     for (let i = 0; i < 20; ++i) {
+        console.log(`Step ${i + 1}/20`);
         const isStarted = await broker.start();
-        expect(isStarted).toBeTruthy()
-        expect(await broker.isRunning()).toBeTruthy()
-        await sleep(2000)
-        const isStopped = await broker.stop()
+        expect(isStarted).toBeTruthy();
+        expect(await broker.isRunning()).toBeTruthy();
+        await sleep(2000);
+        const isStopped = await broker.stop();
         expect(isStopped).toBeTruthy();
-        expect(await broker.checkCoredump()).toBeFalsy()
+        expect(await broker.checkCoredump()).toBeFalsy();
     }
-    let p = new Promise((resolve, reject) => {
-        readFile(Broker.CENTREON_BROKER_CENTRAL_LOGS_PATH, (err, data) => {
-            if (err) {
-                reject(err);
-                return;
-            }
-            if (data) {
-                if (data.toString().includes('[sql] [error] conflict_manager: not initialized after 10s. Probably an issue in the sql output configuration')) {
-                    resolve(true);
-                    return;
-                }
-            }
-        });
-    });
-    expect(p.then((value) => { return value; }).catch(() => { return false; })).toBeTruthy();
-
+    expect(await broker.checkLogFileContains(['[sql] [error] conflict_manager: not initialized after 10s. Probably an issue in the sql output configuration'])).toBeTruthy();
 }, 300000)

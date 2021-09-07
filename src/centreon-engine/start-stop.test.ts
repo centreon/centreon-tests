@@ -21,7 +21,8 @@ describe("start and stop engine", () => {
 
 
     it('start/stop centengine', async () => {
-        const engine = new Engine()
+        const engine = new Engine();
+        engine.buildConfig(50, 40);
         const isStarted = await engine.start();
         expect(isStarted).toBeTruthy();
 
@@ -33,14 +34,15 @@ describe("start and stop engine", () => {
     it('start and stop many instances engine', async () => {
 
         for (let i = 0; i < 3; ++i) {
-            const engine = new Engine()
+            console.log(`Step ${i + 1}/3`);
+            const engine = new Engine();
             const isStarted = await engine.start();
             expect(isStarted).toBeTruthy();
 
-            await sleep(300)
+            await sleep(300);
             const isStoped = await engine.stop();
             expect(isStoped).toBeTruthy();
-            expect(await engine.checkCoredump()).toBeFalsy()
+            expect(await engine.checkCoredump()).toBeFalsy();
         }
     }, 120000);
 

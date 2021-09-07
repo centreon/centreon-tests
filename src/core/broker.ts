@@ -1,6 +1,6 @@
 import shell from 'shelljs'
 import psList from 'ps-list'
-import { chownSync, existsSync, createReadStream, rmSync, writeFileSync } from 'fs'
+import { chownSync, existsSync, createReadStream, rmSync, writeFileSync, writeSync } from 'fs'
 import fs from 'fs/promises'
 import { ChildProcess } from 'child_process'
 import sleep from 'await-sleep';
@@ -9,31 +9,35 @@ import { strict as assert } from 'assert';
 import { SIGHUP } from 'constants';
 import readline from 'readline'
 
+export enum BrokerType {
+    central = 0,
+    rrd = 1,
+    module = 2
+};
 export class Broker {
     private instanceCount : number
     private process : ChildProcess
     private rrdProcess : ChildProcess
-    private config : JSON;
 
     static CENTREON_BROKER_UID = parseInt(shell.exec('id -u centreon-broker'))
     static CENTREON_ENGINE_UID = parseInt(shell.exec('id -u centreon-engine'))
     static CENTREON_ENGINE_GID = parseInt(shell.exec('id -g centreon-engine'))
     static CENTREON_BROKER_CENTRAL_LOGS_PATH = `/var/log/centreon-broker/central-broker-master.log`
     static CENTREON_BROKER_RRD_LOGS_PATH = `/var/log/centreon-broker/central-rrd-master.log`
-    static CENTREON_MODULE_LOGS_PATH = `/var/log/centreon-broker/central-module-master.log`
+    static CENTREON_BROKER_MODULE_LOGS_PATH = `/var/log/centreon-broker/central-module-master.log`
     static CENTRON_BROKER_CENTRAL_CONFIG_PATH = `/etc/centreon-broker/central-broker.json`
     static CENTRON_BROKER_RRD_CONFIG_PATH = `/etc/centreon-broker/central-rrd.json`
     static CENTRON_MODULE_CONFIG_PATH = `/etc/centreon-broker/central-module.json`
     static CENTRON_RRD_CONFIG_PATH = `/etc/centreon-broker/central-rrd.json`
 
-    lastMatchingLog : number;
+    lastMatchingLog : number[];
 
     constructor(count : number = 2) {
         assert(count == 1 || count == 2)
         this.instanceCount = count
-        this.lastMatchingLog = Math.floor(Date.now() / 1000);
+        let d = Math.floor(Date.now() / 1000);
+        this.lastMatchingLog = [d, d, d];
     }
-
 
     /**
      * this function will start a new centreon broker and rdd process
@@ -55,7 +59,7 @@ export class Broker {
      *
      * @returns Promise<Boolean> true if correctly stopped, else false
      */
-    async stop() : Promise<Boolean> {
+    async stop() : Promise<boolean> {
         if (await this.isRunning(25)) {
             let ret1 = this.process.kill()
 
@@ -63,7 +67,7 @@ export class Broker {
             if (this.instanceCount == 2)
                 ret2 = this.rrdProcess.kill()
 
-            return await this.isStopped()
+            return await this.isStopped(25);
         }
 
         return true;
@@ -238,8 +242,26 @@ export class Broker {
      * @param  {number} seconds=15 number of second to wait before returning
      * @returns {Promise<Boolean>} true if found, else false
      */
-    async checkLogFileContains(strings : Array<string>, seconds : number = 15) : Promise<boolean> {
-        let from = this.lastMatchingLog;
+    async checkLogFileContains(b : BrokerType, strings : string[], seconds : number) : Promise<boolean> {
+        let logname : string;
+        switch (b) {
+            case BrokerType.central:
+                logname = Broker.CENTREON_BROKER_CENTRAL_LOGS_PATH;
+                break;
+            case BrokerType.module:
+                logname = Broker.CENTREON_BROKER_MODULE_LOGS_PATH;
+                break;
+            case BrokerType.rrd:
+                logname = Broker.CENTREON_BROKER_RRD_LOGS_PATH;
+                break;
+        }
+
+        while (seconds > 0 && !existsSync(logname)) {
+            sleep(1000);
+            seconds--;
+        }
+
+        let from = this.lastMatchingLog[b];
 
         /* 3 possible values:
           * 0 => failed
@@ -251,7 +273,7 @@ export class Broker {
         do {
             let p = new Promise((resolve, reject) => {
                 const rl = readline.createInterface({
-                    input: createReadStream(Broker.CENTREON_BROKER_CENTRAL_LOGS_PATH),
+                    input: createReadStream(logname),
                     terminal: false
                 });
                 rl.on('line', line => {
@@ -260,7 +282,7 @@ export class Broker {
                     if (dd >= from) {
                         let idx = strings.findIndex(s => line.includes(s));
                         if (idx >= 0) {
-                            this.lastMatchingLog = dd;
+                            this.lastMatchingLog[b] = dd;
                             strings.splice(idx, 1);
                             if (strings.length === 0) {
                                 resolve(true);
@@ -278,14 +300,14 @@ export class Broker {
                 })
             });
 
-            retval = p.then((value : boolean) => { 
+            retval = p.then((value : boolean) => {
                 if (!value) {
                     console.log(`Cannot find strings <<${strings.join(', ')}>> in broker logs`);
                     return 0;
                 }
                 else
                     return 1;
-                 }).catch(err => {
+            }).catch(err => {
                 if (err == 'File closed')
                     return 2;
                 else {
@@ -297,43 +319,50 @@ export class Broker {
         return (await retval) > 0;
     }
 
-    static async checkLogFileCentralModuleContains(strings : Array<string>, seconds : number = 15) : Promise<boolean> {
+    async checkCentralLogContains(strings : string[], seconds : number = 15) : Promise<boolean> {
+        return this.checkLogFileContains(BrokerType.central, strings, seconds);
+    }
 
-        for (let i = 0; i < seconds * 10; ++i) {
-            const logs = await Broker.getLogsCentralModule()
+    async checkRrdLogContains(strings : string[], seconds : number = 15) : Promise<boolean> {
+        return this.checkLogFileContains(BrokerType.rrd, strings, seconds);
+    }
 
-            let retval = strings.every((value) => {
-                return logs.includes(value);
-            });
+    async checkModuleLogContains(strings : string[], seconds : number = 15) : Promise<boolean> {
+        return this.checkLogFileContains(BrokerType.module, strings, seconds);
+    }
 
-            if (retval)
-                return true;
-            await sleep(100)
+    static clearLogs(type : BrokerType) : void {
+        let logname : string;
+        let uid : number;
+        switch (type) {
+            case BrokerType.central:
+                logname = Broker.CENTREON_BROKER_CENTRAL_LOGS_PATH;
+                uid = Broker.CENTREON_BROKER_UID;
+                break;
+                case BrokerType.module:
+                    logname = Broker.CENTREON_BROKER_MODULE_LOGS_PATH;
+                    uid = Broker.CENTREON_ENGINE_UID;
+                    break;
+                    case BrokerType.rrd:
+                        logname = Broker.CENTREON_BROKER_RRD_LOGS_PATH;
+                        uid = Broker.CENTREON_ENGINE_UID;
+                        break;
+        
+            }
+        if (existsSync(logname)) {
+            rmSync(logname);
+            writeFileSync(logname, '');
+            chownSync(logname, uid, uid);
         }
-
-        return false;
-    }
-
-    static async getLogs() : Promise<String> {
-        return (await fs.readFile(Broker.CENTREON_BROKER_CENTRAL_LOGS_PATH)).toString()
-    }
-
-    static async getLogsCentralModule() : Promise<String> {
-        return (await fs.readFile(Broker.CENTREON_MODULE_LOGS_PATH)).toString()
-
-    }
-
-    static clearLogs() : void {
-        if (existsSync(Broker.CENTREON_BROKER_CENTRAL_LOGS_PATH))
-            rmSync(Broker.CENTREON_BROKER_CENTRAL_LOGS_PATH)
     }
 
     static clearLogsCentralModule() : void {
-        rmSync(Broker.CENTREON_MODULE_LOGS_PATH)
-        writeFileSync(Broker.CENTREON_MODULE_LOGS_PATH, "")
-
-        chownSync(Broker.CENTREON_MODULE_LOGS_PATH, Broker.CENTREON_ENGINE_UID,
-            Broker.CENTREON_ENGINE_GID)
+        if (existsSync(Broker.CENTREON_BROKER_CENTRAL_LOGS_PATH))
+            rmSync(Broker.CENTREON_BROKER_CENTRAL_LOGS_PATH);
+        if (existsSync(Broker.CENTREON_BROKER_RRD_LOGS_PATH))
+            rmSync(Broker.CENTREON_BROKER_RRD_LOGS_PATH);
+        if (existsSync(Broker.CENTREON_BROKER_MODULE_LOGS_PATH))
+            rmSync(Broker.CENTREON_BROKER_MODULE_LOGS_PATH);
     }
 
     static async isMySqlRunning() : Promise<Boolean> {

@@ -10,8 +10,8 @@ describe('broker testing', () => {
     beforeEach(() => {
         Broker.cleanAllInstances();
         Engine.cleanAllInstances();
-
-        Broker.clearLogs()
+        Broker.clearLogs();
+        Broker.resetConfig();
     })
 
     afterAll(() => {
