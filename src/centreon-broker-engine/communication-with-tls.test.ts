@@ -1,13 +1,14 @@
 import sleep from 'await-sleep';
 import shell from 'shelljs';
 import { once } from 'events'
-import { Broker } from '../core/broker';
+import { Broker, BrokerType } from '../core/broker';
 import { Engine } from '../core/engine';
 import { isBrokerAndEngineConnected } from '../core/brokerEngine';
 import { broker } from 'shared';
 
 import util from 'util';
 import process from 'process';
+import { rmSync } from 'fs';
 
 shell.config.silent = true;
 
@@ -16,13 +17,13 @@ describe('engine and broker testing in same time for compression', () => {
         Broker.cleanAllInstances();
         Engine.cleanAllInstances();
 
-        Broker.clearLogs()
-        Broker.clearLogsCentralModule()
+        Broker.clearLogs(BrokerType.central);
+        Broker.clearLogs(BrokerType.module);
         Broker.resetConfig()
         Broker.resetConfigCentralModule()
         Broker.resetConfigCentralRrd()
 
-        if (Broker.isServiceRunning() || Engine.isServiceRunning()) {
+        if (Broker.isServiceRunning() || Engine.isRunning()) {
             console.log("program could not stop cbd or centengine")
             process.exit(1)
         }
@@ -33,7 +34,7 @@ describe('engine and broker testing in same time for compression', () => {
             Broker.cleanAllInstances();
             Engine.cleanAllInstances();
 
-            Broker.clearLogs()
+            Broker.clearLogs(BrokerType.central);
             Broker.resetConfig()
             Broker.resetConfigCentralModule()
             Broker.resetConfigCentralRrd()
@@ -69,8 +70,8 @@ describe('engine and broker testing in same time for compression', () => {
 
         for (let t1 in tls) {
             for (let t2 in tls) {
-                Broker.clearLogs()
-                Broker.clearLogsCentralModule()
+                Broker.clearLogs(BrokerType.central);
+                Broker.clearLogs(BrokerType.module);
 
                 centralBrokerMaster['tls'] = t1
                 centralModuleMaster['tls'] = t2
@@ -94,8 +95,8 @@ describe('engine and broker testing in same time for compression', () => {
 
                 await expect(isBrokerAndEngineConnected()).resolves.toBeTruthy()
 
-                await expect(Broker.checkLogFileContains(peer1)).resolves.toBeTruthy()
-                await expect(Broker.checkLogFileCentralModuleContains(peer2)).resolves.toBeTruthy()
+                await expect(broker.checkCentralLogContains(peer1)).resolves.toBeTruthy()
+                await expect(broker.checkModuleLogContains(peer2)).resolves.toBeTruthy()
 
                 await expect(broker.stop()).resolves.toBeTruthy();
                 await expect(engine.stop()).resolves.toBeTruthy();
@@ -154,17 +155,17 @@ describe('engine and broker testing in same time for compression', () => {
         await expect(isBrokerAndEngineConnected()).resolves.toBeTruthy()
 
         // checking logs
-        await expect(Broker.checkLogFileContains(["[tls] [info] TLS: using certificates as credentials"])).resolves.toBeTruthy()
-        await expect(Broker.checkLogFileContains(["[tls] [debug] TLS: performing handshake"])).resolves.toBeTruthy()
-        await expect(Broker.checkLogFileContains(["[tls] [debug] TLS: successful handshake"])).resolves.toBeTruthy()
+        await expect(broker.checkCentralLogContains(["[tls] [info] TLS: using certificates as credentials",
+        "[tls] [debug] TLS: performing handshake",
+        "[tls] [debug] TLS: successful handshake"])).resolves.toBeTruthy();
 
         await expect(broker.stop()).resolves.toBeTruthy();
         await expect(engine.stop()).resolves.toBeTruthy();
 
-        shell.rm("/etc/centreon-broker/client.key")
-        shell.rm("/etc/centreon-broker/client.crt")
-        shell.rm("/etc/centreon-broker/server.key")
-        shell.rm("/etc/centreon-broker/server.crt")
+        rmSync("/etc/centreon-broker/client.key");
+        rmSync("/etc/centreon-broker/client.crt");
+        rmSync("/etc/centreon-broker/server.key");
+        rmSync("/etc/centreon-broker/server.crt");
     }, 90000);
 
     it('tls with keys checks between broker - engine (bis)', async () => {
@@ -214,15 +215,15 @@ describe('engine and broker testing in same time for compression', () => {
         await expect(isBrokerAndEngineConnected()).resolves.toBeTruthy()
 
         // checking logs
-        await expect(Broker.checkLogFileContains(["[tls] [info] TLS: using anonymous client credentials"])).resolves.toBeTruthy()
-        await expect(Broker.checkLogFileContains(["[tls] [debug] TLS: performing handshake"])).resolves.toBeTruthy()
-        await expect(Broker.checkLogFileContains(["[tls] [debug] TLS: successful handshake"])).resolves.toBeTruthy()
+        await expect(broker.checkCentralLogContains(["[tls] [info] TLS: using anonymous client credentials",
+        "[tls] [debug] TLS: performing handshake",
+        "[tls] [debug] TLS: successful handshake"])).resolves.toBeTruthy()
 
         await expect(broker.stop()).resolves.toBeTruthy();
         await expect(engine.stop()).resolves.toBeTruthy();
 
-        shell.rm("/etc/centreon-broker/client.crt")
-        shell.rm("/etc/centreon-broker/server.crt")
+        rmSync("/etc/centreon-broker/client.crt");
+        rmSync("/etc/centreon-broker/server.crt");
     }, 90000);
 
 });
