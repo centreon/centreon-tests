@@ -9,7 +9,7 @@ beforeEach(async () => {
     await Broker.cleanAllInstances();
     await Engine.cleanAllInstances();
 
-    Broker.resetConfig();
+    Broker.resetConfig(BrokerType.central);
     Broker.clearLogs(BrokerType.central);
 }, 30000)
 
@@ -19,10 +19,10 @@ afterEach(async () => {
 
 it('should deny access when database name exists but is not the good one for sql output', async () => {
 
-    const config = await Broker.getConfig();
+    const config = await Broker.getConfig(BrokerType.central);
     const centralBrokerMasterSql = config['centreonBroker']['output'].find((output => output.name === 'central-broker-master-sql'))
     centralBrokerMasterSql['db_name'] = "centreon"
-    await Broker.writeConfig(config)
+    await Broker.writeConfig(BrokerType.central, config);
 
     const broker = new Broker();
     const isStarted = await broker.start();
@@ -38,10 +38,10 @@ it('should deny access when database name exists but is not the good one for sql
 
 it('should deny access when database name exists but is not the good one for storage output', async () => {
 
-    const config = await Broker.getConfig()
+    const config = await Broker.getConfig(BrokerType.central);
     const centrealBrokerMasterPerfData = config['centreonBroker']['output'].find((output => output.name === 'central-broker-master-perfdata'))
     centrealBrokerMasterPerfData['db_name'] = "centreon"
-    await Broker.writeConfig(config)
+    await Broker.writeConfig(BrokerType.central, config);
 
     const broker = new Broker();
     expect(await broker.start()).toBeTruthy();
@@ -55,10 +55,10 @@ it('should deny access when database name exists but is not the good one for sto
 
 it('should deny access when database name does not exists for sql output', async () => {
 
-    const config = await Broker.getConfig();
+    const config = await Broker.getConfig(BrokerType.central);
     const centralBrokerMasterSql = config['centreonBroker']['output'].find((output => output.name === 'central-broker-master-sql'))
     centralBrokerMasterSql['db_name'] = "centreon1"
-    await Broker.writeConfig(config)
+    await Broker.writeConfig(BrokerType.central, config);
 
     const broker = new Broker();
     const isStarted = await broker.start();
@@ -74,10 +74,10 @@ it('should deny access when database name does not exists for sql output', async
 
 it('should deny access when database name does not exist for storage output', async () => {
 
-    const config = await Broker.getConfig()
+    const config = await Broker.getConfig(BrokerType.central);
     const centrealBrokerMasterPerfData = config['centreonBroker']['output'].find((output => output.name === 'central-broker-master-perfdata'))
     centrealBrokerMasterPerfData['db_name'] = "centreon1"
-    await Broker.writeConfig(config)
+    await Broker.writeConfig(BrokerType.central, config);
 
     const broker = new Broker();
     expect(await broker.start()).toBeTruthy();
@@ -90,10 +90,10 @@ it('should deny access when database name does not exist for storage output', as
 }, 30000);
 
 it('should deny access when database user password is wrong for sql', async () => {
-    const config = await Broker.getConfig()
+    const config = await Broker.getConfig(BrokerType.central);
     const centralBrokerMasterSql = config['centreonBroker']['output'].find((output => output.name === 'central-broker-master-sql'))
     centralBrokerMasterSql['db_password'] = "centreon1"
-    await Broker.writeConfig(config)
+    await Broker.writeConfig(BrokerType.central, config);
 
     const broker = new Broker();
     const isStarted = await broker.start();
@@ -110,10 +110,10 @@ it('should deny access when database user password is wrong for sql', async () =
 
 it('should log error when database name is not correct', async () => {
 
-    const config = await Broker.getConfig()
+    const config = await Broker.getConfig(BrokerType.central);
     const centralBrokerMasterSql = config['centreonBroker']['output'].find((output => output.name === 'central-broker-master-sql'))
     centralBrokerMasterSql['db_name'] = "centreon1"
-    await Broker.writeConfig(config)
+    await Broker.writeConfig(BrokerType.central, config);
     //shell.config.silent = true;
 
     const broker = new Broker();
@@ -129,7 +129,7 @@ it('should log error when database name is not correct', async () => {
 }, 60000)
 
 it('multi connections step 1', async () => {
-    const config = await Broker.getConfig()
+    const config = await Broker.getConfig(BrokerType.central);
     const centralBrokerMasterSql = config['centreonBroker']['output'].find((
         output => output.name === 'central-broker-master-sql'))
     centralBrokerMasterSql.connections_count = "4"
@@ -141,7 +141,7 @@ it('multi connections step 1', async () => {
     const loggers = config['centreonBroker']['log']['loggers']
     loggers['sql'] = "info"
 
-    await Broker.writeConfig(config)
+    await Broker.writeConfig(BrokerType.central, config);
 
     const broker = new Broker();
     expect(await broker.start()).toBeTruthy()
@@ -152,7 +152,7 @@ it('multi connections step 1', async () => {
 }, 60000)
 
 it('multi connections step 2', async () => {
-    const config = await Broker.getConfig()
+    const config = await Broker.getConfig(BrokerType.central);
     const centralBrokerMasterSql = config['centreonBroker']['output'].find((
         output => output.name === 'central-broker-master-sql'))
     centralBrokerMasterSql.connections_count = "5"
@@ -164,7 +164,7 @@ it('multi connections step 2', async () => {
     const loggers = config['centreonBroker']['log']['loggers']
     loggers['sql'] = "info"
 
-    await Broker.writeConfig(config)
+    await Broker.writeConfig(BrokerType.central, config);
 
     const broker = new Broker();
     expect(await broker.start()).toBeTruthy()
@@ -192,11 +192,11 @@ it('mariadb server down', async () => {
 }, 300000)
 
 it('repeat 20 times start/stop cbd with a wrong configuration in perfdata', async () => {
-    const config = await Broker.getConfig()
+    const config = await Broker.getConfig(BrokerType.central);
     const centralBrokerMasterPerfdata = config['centreonBroker']['output'].find((
         output => output.name === 'central-broker-master-perfdata'))
     centralBrokerMasterPerfdata['db_host'] = "1.2.3.4"
-    await Broker.writeConfig(config)
+    await Broker.writeConfig(BrokerType.central, config);
 
     const broker = new Broker();
     for (let i = 0; i < 20; ++i) {
@@ -213,11 +213,11 @@ it('repeat 20 times start/stop cbd with a wrong configuration in perfdata', asyn
 }, 350000)
 
 it('repeat 20 times start/stop cbd with a wrong configuration in sql', async () => {
-    const config = await Broker.getConfig()
+    const config = await Broker.getConfig(BrokerType.central);
     const centralBrokerMasterSql = config['centreonBroker']['output'].find((
         output => output.name === 'central-broker-master-sql'))
     centralBrokerMasterSql['db_host'] = "1.2.3.4"
-    await Broker.writeConfig(config)
+    await Broker.writeConfig(BrokerType.central, config)
 
     const broker = new Broker();
     for (let i = 0; i < 20; ++i) {

@@ -19,9 +19,9 @@ describe('engine and broker testing in same time for compression', () => {
 
         Broker.clearLogs(BrokerType.central);
         Broker.clearLogs(BrokerType.module);
-        Broker.resetConfig()
-        Broker.resetConfigCentralModule()
-        Broker.resetConfigCentralRrd()
+        Broker.resetConfig(BrokerType.central);
+        Broker.resetConfig(BrokerType.module);
+        Broker.resetConfig(BrokerType.rrd);
 
         if (Broker.isServiceRunning() || Engine.isRunning()) {
             console.log("program could not stop cbd or centengine")
@@ -35,9 +35,9 @@ describe('engine and broker testing in same time for compression', () => {
             Engine.cleanAllInstances();
 
             Broker.clearLogs(BrokerType.central);
-            Broker.resetConfig()
-            Broker.resetConfigCentralModule()
-            Broker.resetConfigCentralRrd()
+            Broker.resetConfig(BrokerType.central);
+            Broker.resetConfig(BrokerType.module);
+            Broker.resetConfig(BrokerType.rrd);
         })
     })
 
@@ -51,8 +51,8 @@ describe('engine and broker testing in same time for compression', () => {
             auto: 'TLS'
         }
 
-        const config_broker = await Broker.getConfig()
-        const config_module = await Broker.getConfigCentralModule()
+        const config_broker = await Broker.getConfig(BrokerType.central);
+        const config_module = await Broker.getConfig(BrokerType.module);
 
         const centralModuleLoggers = config_module['centreonBroker']['log']['loggers']
         const centralBrokerLoggers = config_broker['centreonBroker']['log']['loggers']
@@ -87,8 +87,8 @@ describe('engine and broker testing in same time for compression', () => {
                 console.log(centralBrokerMaster)
                 console.log(centralModuleMaster)
 
-                await Broker.writeConfigCentralModule(config_module)
-                await Broker.writeConfig(config_broker)
+                await Broker.writeConfig(BrokerType.module, config_module);
+                await Broker.writeConfig(BrokerType.central, config_broker);
 
                 await expect(broker.start()).resolves.toBeTruthy()
                 await expect(engine.start()).resolves.toBeTruthy()
@@ -108,8 +108,8 @@ describe('engine and broker testing in same time for compression', () => {
         const broker = new Broker()
         const engine = new Engine()
 
-        const config_broker = await Broker.getConfig()
-        const config_rrd = await Broker.getConfigCentralRrd()
+        const config_broker = await Broker.getConfig(BrokerType.central);
+        const config_rrd = await Broker.getConfig(BrokerType.rrd);
 
         const centralBrokerLoggers = config_broker['centreonBroker']['log']['loggers']
 
@@ -142,8 +142,8 @@ describe('engine and broker testing in same time for compression', () => {
         centralRrdMaster["ca_certificate"] = "/etc/centreon-broker/client.crt"
 
         // write changes in config_broker
-        await Broker.writeConfig(config_broker)
-        await Broker.writeConfigCentralRrd(config_rrd)
+        await Broker.writeConfig(BrokerType.central, config_broker);
+        await Broker.writeConfig(BrokerType.rrd, config_rrd);
 
         console.log(centralBrokerMaster)
         console.log(centralRrdMaster)
@@ -172,8 +172,8 @@ describe('engine and broker testing in same time for compression', () => {
         const broker = new Broker()
         const engine = new Engine()
 
-        const config_broker = await Broker.getConfig()
-        const config_rrd = await Broker.getConfigCentralRrd()
+        const config_broker = await Broker.getConfig(BrokerType.central);
+        const config_rrd = await Broker.getConfig(BrokerType.rrd);
 
         const centralBrokerLoggers = config_broker['centreonBroker']['log']['loggers']
 
@@ -202,8 +202,8 @@ describe('engine and broker testing in same time for compression', () => {
         centralRrdMaster["ca_certificate"] = "/etc/centreon-broker/client.crt"
 
         // write changes in config_broker
-        await Broker.writeConfig(config_broker)
-        await Broker.writeConfigCentralRrd(config_rrd)
+        await Broker.writeConfig(BrokerType.central, config_broker);
+        await Broker.writeConfig(BrokerType.rrd, config_rrd);
 
         console.log(centralBrokerMaster)
         console.log(centralRrdMaster)

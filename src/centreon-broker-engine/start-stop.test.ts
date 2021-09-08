@@ -13,7 +13,7 @@ describe('engine and broker testing in same time', () => {
         await Broker.cleanAllInstances();
 
         Broker.clearLogs(BrokerType.central);
-        Broker.resetConfig();
+        Broker.resetConfig(BrokerType.central);
         Engine.clearLogs();
 
         if (Broker.isInstancesRunning() || Engine.isRunning()) {

@@ -12,7 +12,7 @@ describe('engine reloads with new hosts and hostgroups configurations', () => {
         await Broker.cleanAllInstances();
 
         Broker.clearLogs(BrokerType.central);
-        Broker.resetConfig();
+        Broker.resetConfig(BrokerType.central);
         Engine.clearLogs();
 
         if (Broker.isInstancesRunning() || Engine.isRunning()) {
@@ -29,9 +29,9 @@ describe('engine reloads with new hosts and hostgroups configurations', () => {
     })
 
     it('New host group', async () => {
-        Broker.resetConfig();
-        Broker.resetConfigCentralModule();
-        Broker.resetConfigCentralRrd();
+        Broker.resetConfig(BrokerType.central);
+        Broker.resetConfig(BrokerType.module);
+        Broker.resetConfig(BrokerType.rrd);
 
         const broker = new Broker(2);
         await expect(broker.start()).resolves.toBeTruthy();

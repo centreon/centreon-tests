@@ -16,8 +16,8 @@ describe('engine and broker testing in same time for compression', () => {
 
         Broker.clearLogs(BrokerType.central);
         Broker.clearLogs(BrokerType.module);
-        Broker.resetConfig()
-        Broker.resetConfigCentralModule()
+        Broker.resetConfig(BrokerType.central);
+        Broker.resetConfig(BrokerType.module);
 
         if (Broker.isServiceRunning() || Engine.isRunning()) {
             console.log("program could not stop cbd or centengine")
@@ -32,8 +32,8 @@ describe('engine and broker testing in same time for compression', () => {
             Engine.cleanAllInstances();
 
             Broker.clearLogs(BrokerType.central);
-            Broker.resetConfig();
-            Broker.resetConfigCentralModule();
+            Broker.resetConfig(BrokerType.central);
+            Broker.resetConfig(BrokerType.module);
         })
     })
 
@@ -47,8 +47,8 @@ describe('engine and broker testing in same time for compression', () => {
             auto: 'COMPRESSION'
         }
 
-        const config_broker = await Broker.getConfig()
-        const config_module = await Broker.getConfigCentralModule()
+        const config_broker = await Broker.getConfig(BrokerType.central);
+        const config_module = await Broker.getConfig(BrokerType.module);
 
         const centralModuleLoggers = config_module['centreonBroker']['log']['loggers']
         const centralBrokerLoggers = config_broker['centreonBroker']['log']['loggers']
@@ -89,8 +89,8 @@ describe('engine and broker testing in same time for compression', () => {
                 console.log(centralBrokerMaster)
                 console.log(centralModuleMaster)
 
-                await Broker.writeConfig(config_broker)
-                await Broker.writeConfigCentralModule(config_module)
+                await Broker.writeConfig(BrokerType.central, config_broker);
+                await Broker.writeConfig(BrokerType.module, config_module);
 
                 await expect(broker.start()).resolves.toBeTruthy()
                 await expect(engine.start()).resolves.toBeTruthy()

@@ -25,11 +25,11 @@ export class Broker {
     static CENTREON_BROKER_CENTRAL_LOGS_PATH = `/var/log/centreon-broker/central-broker-master.log`
     static CENTREON_BROKER_RRD_LOGS_PATH = `/var/log/centreon-broker/central-rrd-master.log`
     static CENTREON_BROKER_MODULE_LOGS_PATH = `/var/log/centreon-broker/central-module-master.log`
-    static CENTRON_BROKER_CENTRAL_CONFIG_PATH = `/etc/centreon-broker/central-broker.json`
-    static CENTRON_BROKER_RRD_CONFIG_PATH = `/etc/centreon-broker/central-rrd.json`
-    static CENTRON_MODULE_CONFIG_PATH = `/etc/centreon-broker/central-module.json`
-    static CENTRON_RRD_CONFIG_PATH = `/etc/centreon-broker/central-rrd.json`
-
+    static CENTREON_BROKER_CONFIG_PATH : { [index: number]: string} = [
+        '/etc/centreon-broker/central-broker.json',
+        '/etc/centreon-broker/central-rrd.json',
+        '/etc/centreon-broker/central-module.json',
+    ];
     static lastMatchingLog : { [index: number]: number} = [Math.floor(Date.now() / 1000), Math.floor(Date.now() / 1000), Math.floor(Date.now() / 1000)];
 
     constructor(count : number = 2) {
@@ -46,9 +46,9 @@ export class Broker {
      * @returns Promise<Boolean> true if correctly started, else false
      */
     async start() : Promise<boolean> {
-        this.process = shell.exec(`/usr/sbin/cbd ${Broker.CENTRON_BROKER_CENTRAL_CONFIG_PATH}`, { async: true, uid: Broker.CENTREON_BROKER_UID })
+        this.process = shell.exec(`/usr/sbin/cbd ${Broker.CENTREON_BROKER_CONFIG_PATH[BrokerType.central]}`, { async: true, uid: Broker.CENTREON_BROKER_UID })
         if (this.instanceCount == 2)
-            this.rrdProcess = shell.exec(`/usr/sbin/cbd ${Broker.CENTRON_BROKER_RRD_CONFIG_PATH}`, { async: true, uid: Broker.CENTREON_BROKER_UID })
+            this.rrdProcess = shell.exec(`/usr/sbin/cbd ${Broker.CENTREON_BROKER_CONFIG_PATH[BrokerType.rrd]}`, { async: true, uid: Broker.CENTREON_BROKER_UID })
 
         return await this.isRunning(20);
     }
@@ -169,71 +169,37 @@ export class Broker {
      *
      * @returns Promise<JSON> config json object
      */
-    static async getConfig() : Promise<JSON> {
-        return JSON.parse((await fs.readFile('/etc/centreon-broker/central-broker.json')).toString());
+    static async getConfig(type : BrokerType) : Promise<JSON> {
+        return JSON.parse((await fs.readFile(this.CENTREON_BROKER_CONFIG_PATH[type])).toString());
     }
-
-    /**
-     * this retrive the current centreon module config
-     *
-     * @returns Promise<JSON> config json object
-     */
-    static async getConfigCentralModule() : Promise<JSON> {
-        return JSON.parse((await fs.readFile('/etc/centreon-broker/central-module.json')).toString());
-    }
-
-    static async getConfigCentralRrd() : Promise<JSON> {
-        return JSON.parse((await fs.readFile('/etc/centreon-broker/central-rrd.json')).toString());
-    }
-
 
     /**
      * write json config to centreon default config file location
      * @param  {JSON} config object representing broker configuration
      */
-    static async writeConfig(config : JSON) {
-        await fs.writeFile('/etc/centreon-broker/central-broker.json', JSON.stringify(config, null, '\t'))
+    static async writeConfig(type : BrokerType, config : JSON) {
+        await fs.writeFile(this.CENTREON_BROKER_CONFIG_PATH[type],
+             JSON.stringify(config, null, '\t'))
     }
-
-    /**
-     * write json config to centreon module config file location
-     * @param  {JSON} config object representing broker configuration
-     */
-    static async writeConfigCentralModule(config : JSON) {
-        await fs.writeFile('/etc/centreon-broker/central-module.json', JSON.stringify(config, null, '\t'))
-    }
-
-    /**
-     * write json config to centreon rrd config file location
-     * @param  {JSON} config object representing broker configuration
-     */
-    static async writeConfigCentralRrd(config : JSON) {
-        await fs.writeFile('/etc/centreon-broker/central-rrd.json', JSON.stringify(config, null, '\t'))
-    }
-
 
     /**
      * this reset the default configuration for broker</Boolean>
      * very useful for resetting after doing some tests
      */
-    static resetConfig() {
-        return shell.cp(path.join(__dirname, '../config/centreon-broker.json'), Broker.CENTRON_BROKER_CENTRAL_CONFIG_PATH)
-    }
-
-    /**
-     * this reset the central module configuration for broker</Boolean>
-     * very useful for resetting after doing some tests
-     */
-    static resetConfigCentralModule() {
-        return shell.cp(path.join(__dirname, '../config/central-module.json'), Broker.CENTRON_MODULE_CONFIG_PATH)
-    }
-
-    /**
-     * this reset the central rrd configuration for broker</Boolean>
-     * very useful for resetting after doing some tests
-     */
-    static resetConfigCentralRrd() {
-        return shell.cp(path.join(__dirname, '../config/central-rrd.json'), Broker.CENTRON_RRD_CONFIG_PATH)
+    static resetConfig(type : BrokerType) {
+        let conf : string;
+        switch (type) {
+            case BrokerType.central:
+                conf = '../config/centreon-broker.json';
+                break;
+            case BrokerType.module:
+                conf = '../config/centreon-module.json';
+                break;
+            case BrokerType.rrd:
+                conf = '../config/centreon-rrd.json';
+                break;
+        }
+        return shell.cp(path.join(__dirname, conf), Broker.CENTREON_BROKER_CONFIG_PATH[type]);
     }
 
     /**

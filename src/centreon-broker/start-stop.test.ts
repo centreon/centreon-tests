@@ -1,7 +1,7 @@
 import sleep from 'await-sleep';
 import shell from 'shelljs';
 import { once } from 'events'
-import { Broker } from '../core/broker';
+import { Broker, BrokerType } from '../core/broker';
 import { Engine } from '../core/engine';
 
 shell.config.silent = true;
@@ -10,8 +10,8 @@ describe('broker testing', () => {
     beforeEach(() => {
         Broker.cleanAllInstances();
         Engine.cleanAllInstances();
-        Broker.clearLogs();
-        Broker.resetConfig();
+        Broker.clearLogs(BrokerType.central);
+        Broker.resetConfig(BrokerType.central);
     })
 
     afterAll(() => {
@@ -40,11 +40,11 @@ describe('broker testing', () => {
         /* Let's get the configuration, we remove the host to connect since we wan't the other peer
          * to establish the connection. We also set the one peer retention mode (just for the configuration
          * to be correct, not needed for the test). */
-        const config = await Broker.getConfig();
+        const config = await Broker.getConfig(BrokerType.central);
         const centralBrokerMasterRRD = config['centreonBroker']['output'].find((output => output.name === 'centreon-broker-master-rrd'));
         delete centralBrokerMasterRRD.host;
         centralBrokerMasterRRD["one_peer_retention_mode"] = "yes";
-        await Broker.writeConfig(config)
+        await Broker.writeConfig(BrokerType.central, config)
 
         const broker = new Broker(1);
 
