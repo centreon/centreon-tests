@@ -19,3 +19,5 @@ workspace.*
 src/config/centreon-engine/*.cfg
 tags
 .ctags
+
+*.pem
