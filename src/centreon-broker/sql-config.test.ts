@@ -1,6 +1,6 @@
 import sleep from 'await-sleep';
 import shell from 'shelljs';
-import { Broker } from '../core/broker';
+import { Broker, BrokerType } from '../core/broker';
 import { Engine } from '../core/engine';
 
 shell.config.silent = true;
@@ -10,7 +10,7 @@ beforeEach(async () => {
     await Engine.cleanAllInstances();
 
     Broker.resetConfig();
-    Broker.clearLogs();
+    Broker.clearLogs(BrokerType.central);
 }, 30000)
 
 afterEach(async () => {
@@ -28,7 +28,7 @@ it('should deny access when database name exists but is not the good one for sql
     const isStarted = await broker.start();
 
     expect(isStarted).toBeTruthy()
-    expect(await broker.checkLogFileContains(["Table 'centreon.instances' doesn't exist"])).toBeTruthy()
+    expect(await broker.checkCentralLogContains(["Table 'centreon.instances' doesn't exist"])).toBeTruthy()
 
     const isStopped = await broker.stop()
     console.log("isStopped = " + isStopped);
@@ -46,7 +46,7 @@ it('should deny access when database name exists but is not the good one for sto
     const broker = new Broker();
     expect(await broker.start()).toBeTruthy();
 
-    expect(await broker.checkLogFileContains(['[sql] [error] storage: rebuilder: Unable to connect to the database: storage: rebuilder: could not fetch index to rebuild'])).toBeTruthy()
+    expect(await broker.checkCentralLogContains(['[sql] [error] storage: rebuilder: Unable to connect to the database: storage: rebuilder: could not fetch index to rebuild'])).toBeTruthy()
 
     const isStopped = await broker.stop()
     expect(isStopped).toBeTruthy();
@@ -64,7 +64,7 @@ it('should deny access when database name does not exists for sql output', async
     const isStarted = await broker.start();
 
     expect(isStarted).toBeTruthy()
-    expect(await broker.checkLogFileContains(['[core] [error] failover: global error: mysql_connection: error while starting connection'])).toBeTruthy()
+    expect(await broker.checkCentralLogContains(['[core] [error] failover: global error: mysql_connection: error while starting connection'])).toBeTruthy()
 
     const isStopped = await broker.stop()
     expect(isStopped).toBeTruthy();
@@ -82,7 +82,7 @@ it('should deny access when database name does not exist for storage output', as
     const broker = new Broker();
     expect(await broker.start()).toBeTruthy();
 
-    expect(await broker.checkLogFileContains(['[sql] [error] storage: rebuilder: Unable to connect to the database: mysql_connection: error while starting connection'])).toBeTruthy()
+    expect(await broker.checkCentralLogContains(['[sql] [error] storage: rebuilder: Unable to connect to the database: mysql_connection: error while starting connection'])).toBeTruthy()
 
     const isStopped = await broker.stop()
     expect(isStopped).toBeTruthy();
@@ -100,7 +100,7 @@ it('should deny access when database user password is wrong for sql', async () =
 
     expect(await broker.isRunning()).toBeTruthy()
 
-    expect(await broker.checkLogFileContains(['[core] [error] failover: global error: mysql_connection: error while starting connection'])).toBeTruthy()
+    expect(await broker.checkCentralLogContains(['[core] [error] failover: global error: mysql_connection: error while starting connection'])).toBeTruthy()
 
     const isStopped = await broker.stop()
     expect(isStopped).toBeTruthy();
@@ -121,7 +121,7 @@ it('should log error when database name is not correct', async () => {
 
     expect(await broker.isRunning()).toBeTruthy()
 
-    expect(await broker.checkLogFileContains(['[core] [error] failover: global error: mysql_connection: error while starting connection'])).toBeTruthy()
+    expect(await broker.checkCentralLogContains(['[core] [error] failover: global error: mysql_connection: error while starting connection'])).toBeTruthy()
 
     const isStopped = await broker.stop()
     expect(isStopped).toBeTruthy();
@@ -146,7 +146,7 @@ it('multi connections step 1', async () => {
     const broker = new Broker();
     expect(await broker.start()).toBeTruthy()
 
-    expect(await broker.checkLogFileContains(['[sql] [info] mysql connector configured with 4 connection(s)'])).toBeTruthy()
+    expect(await broker.checkCentralLogContains(['[sql] [info] mysql connector configured with 4 connection(s)'])).toBeTruthy()
     expect(await broker.stop()).toBeTruthy();
     expect(await broker.checkCoredump()).toBeFalsy()
 }, 60000)
@@ -169,7 +169,7 @@ it('multi connections step 2', async () => {
     const broker = new Broker();
     expect(await broker.start()).toBeTruthy()
 
-    expect(await broker.checkLogFileContains(['[sql] [info] mysql connector configured with 5 connection(s)'])).toBeTruthy()
+    expect(await broker.checkCentralLogContains(['[sql] [info] mysql connector configured with 5 connection(s)'])).toBeTruthy()
     expect(await broker.stop()).toBeTruthy();
     expect(await broker.checkCoredump()).toBeFalsy()
 }, 60000)
@@ -209,8 +209,8 @@ it('repeat 20 times start/stop cbd with a wrong configuration in perfdata', asyn
         expect(isStopped).toBeTruthy();
         expect(await broker.checkCoredump()).toBeFalsy();
     }
-    expect(await broker.checkLogFileContains(['[sql] [error] storage: rebuilder: Unable to connect to the database: mysql_connection: error while starting connection'])).toBeTruthy();
-}, 300000)
+    expect(await broker.checkCentralLogContains(['[sql] [error] storage: rebuilder: Unable to connect to the database: mysql_connection: error while starting connection'])).toBeTruthy();
+}, 350000)
 
 it('repeat 20 times start/stop cbd with a wrong configuration in sql', async () => {
     const config = await Broker.getConfig()
@@ -230,5 +230,5 @@ it('repeat 20 times start/stop cbd with a wrong configuration in sql', async () 
         expect(isStopped).toBeTruthy();
         expect(await broker.checkCoredump()).toBeFalsy();
     }
-    expect(await broker.checkLogFileContains(['[sql] [error] conflict_manager: not initialized after 10s. Probably an issue in the sql output configuration'])).toBeTruthy();
-}, 300000)
+    expect(await broker.checkCentralLogContains(['[sql] [error] conflict_manager: not initialized after 10s. Probably an issue in the sql output configuration'])).toBeTruthy();
+}, 350000)
