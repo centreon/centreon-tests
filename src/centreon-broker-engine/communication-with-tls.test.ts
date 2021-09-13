@@ -156,8 +156,8 @@ describe('engine and broker testing in same time for compression', () => {
 
         // checking logs
         await expect(broker.checkCentralLogContains(["[tls] [info] TLS: using certificates as credentials",
-        "[tls] [debug] TLS: performing handshake",
-        "[tls] [debug] TLS: successful handshake"])).resolves.toBeTruthy();
+            "[tls] [debug] TLS: performing handshake",
+            "[tls] [debug] TLS: successful handshake"])).resolves.toBeTruthy();
 
         await expect(broker.stop()).resolves.toBeTruthy();
         await expect(engine.stop()).resolves.toBeTruthy();
@@ -216,8 +216,8 @@ describe('engine and broker testing in same time for compression', () => {
 
         // checking logs
         await expect(broker.checkCentralLogContains(["[tls] [info] TLS: using anonymous client credentials",
-        "[tls] [debug] TLS: performing handshake",
-        "[tls] [debug] TLS: successful handshake"])).resolves.toBeTruthy()
+            "[tls] [debug] TLS: performing handshake",
+            "[tls] [debug] TLS: successful handshake"])).resolves.toBeTruthy()
 
         await expect(broker.stop()).resolves.toBeTruthy();
         await expect(engine.stop()).resolves.toBeTruthy();

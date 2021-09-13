@@ -1,6 +1,6 @@
 import shell from 'shelljs'
 import psList from 'ps-list'
-import { chownSync, existsSync, createReadStream, rmSync, writeFileSync, writeSync } from 'fs'
+import { chownSync, unlinkSync, existsSync, createReadStream, rmSync, writeFileSync, writeSync, readdirSync } from 'fs'
 import fs from 'fs/promises'
 import { ChildProcess } from 'child_process'
 import sleep from 'await-sleep';
@@ -25,12 +25,12 @@ export class Broker {
     static CENTREON_BROKER_CENTRAL_LOGS_PATH = `/var/log/centreon-broker/central-broker-master.log`
     static CENTREON_BROKER_RRD_LOGS_PATH = `/var/log/centreon-broker/central-rrd-master.log`
     static CENTREON_BROKER_MODULE_LOGS_PATH = `/var/log/centreon-broker/central-module-master.log`
-    static CENTREON_BROKER_CONFIG_PATH : { [index: number]: string} = [
+    static CENTREON_BROKER_CONFIG_PATH : { [index : number] : string } = [
         '/etc/centreon-broker/central-broker.json',
         '/etc/centreon-broker/central-rrd.json',
         '/etc/centreon-broker/central-module.json',
     ];
-    static lastMatchingLog : { [index: number]: number} = [Math.floor(Date.now() / 1000), Math.floor(Date.now() / 1000), Math.floor(Date.now() / 1000)];
+    static lastMatchingLog : { [index : number] : number } = [Math.floor(Date.now() / 1000), Math.floor(Date.now() / 1000), Math.floor(Date.now() / 1000)];
 
     constructor(count : number = 2) {
         assert(count == 1 || count == 2)
@@ -179,7 +179,7 @@ export class Broker {
      */
     static async writeConfig(type : BrokerType, config : JSON) {
         await fs.writeFile(this.CENTREON_BROKER_CONFIG_PATH[type],
-             JSON.stringify(config, null, '\t'))
+            JSON.stringify(config, null, '\t'))
     }
 
     /**
@@ -251,7 +251,7 @@ export class Broker {
                             }
                         }
                         if (dd - from > seconds) {
-                            reject(`Cannot find strings <<${strings.join(', ')}>> in centengine.log`);
+                            reject(`Timeout: From timestamp ${from} to timestamp ${dd} ; cannot find strings <<${strings.join(', ')}>> in centengine.log`);
                             return;
                         }
                     }
@@ -302,21 +302,44 @@ export class Broker {
                 logname = Broker.CENTREON_BROKER_CENTRAL_LOGS_PATH;
                 uid = Broker.CENTREON_BROKER_UID;
                 break;
-                case BrokerType.module:
-                    logname = Broker.CENTREON_BROKER_MODULE_LOGS_PATH;
-                    uid = Broker.CENTREON_ENGINE_UID;
-                    break;
-                    case BrokerType.rrd:
-                        logname = Broker.CENTREON_BROKER_RRD_LOGS_PATH;
-                        uid = Broker.CENTREON_ENGINE_UID;
-                        break;
-        
-            }
+            case BrokerType.module:
+                logname = Broker.CENTREON_BROKER_MODULE_LOGS_PATH;
+                uid = Broker.CENTREON_ENGINE_UID;
+                break;
+            case BrokerType.rrd:
+                logname = Broker.CENTREON_BROKER_RRD_LOGS_PATH;
+                uid = Broker.CENTREON_ENGINE_UID;
+                break;
+
+        }
         if (existsSync(logname)) {
             rmSync(logname);
             writeFileSync(logname, '');
             chownSync(logname, uid, uid);
         }
+    }
+
+    static clearRetention(type : BrokerType) : void {
+        let path : string;
+        let regex : RegExp;
+        switch (type) {
+            case BrokerType.central:
+                path = '/var/lib/centreon-broker/';
+                regex = /central-broker-master\..*/;
+                break;
+            case BrokerType.module:
+                path = '/var/lib/centreon-engine/';
+                regex = /central-module-master\..*/;
+                break;
+            case BrokerType.rrd:
+                path = '/var/lib/centreon-broker/';
+                regex = /central-rrd-master\..*/;
+                break;
+
+        }
+        readdirSync(path)
+            .filter(f => regex.test(f))
+            .map(f => unlinkSync(path + f));
     }
 
     static clearLogsCentralModule() : void {

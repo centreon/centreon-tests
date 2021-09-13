@@ -54,15 +54,14 @@ describe('engine and broker testing in same time for compression', () => {
         const centralBrokerLoggers = config_broker['centreonBroker']['log']['loggers']
 
         centralModuleLoggers['bbdo'] = 'info';
-        centralModuleLoggers['core'] = 'trace';
-
         centralBrokerLoggers['bbdo'] = 'info';
-        centralBrokerLoggers['core'] = 'trace';
 
         const centralModuleMaster = config_module['centreonBroker']['output'].find((
-            output => output.name === 'central-module-master-output'))
+            output => output.name === 'central-module-master-output'));
+        centralModuleMaster['tls'] = 'no';
         const centralBrokerMaster = config_broker['centreonBroker']['input'].find((
             input => input.name === 'central-broker-master-input'))
+        centralBrokerMaster['tls'] = 'no';
 
         for (let c1 in compression) {
             for (let c2 in compression) {
