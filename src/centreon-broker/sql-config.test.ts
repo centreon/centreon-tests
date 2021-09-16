@@ -2,6 +2,9 @@ import sleep from 'await-sleep';
 import shell from 'shelljs';
 import { Broker, BrokerType } from '../core/broker';
 import { Engine } from '../core/engine';
+import { isBrokerAndEngineConnected } from '../core/brokerEngine';
+import {readFileSync} from 'fs';
+import path = require('path');
 
 shell.config.silent = true;
 
@@ -232,3 +235,48 @@ it('repeat 20 times start/stop cbd with a wrong configuration in sql', async () 
     }
     expect(await broker.checkCentralLogContains(['[sql] [error] conflict_manager: not initialized after 10s. Probably an issue in the sql output configuration'])).toBeTruthy();
 }, 350000)
+
+
+it.only('broker without database', async () => {
+    const config = await Broker.getConfig(BrokerType.central);
+    const broker = new Broker();
+    const engine = new Engine();
+
+    shell.exec('service mysql stop')
+
+    await expect(broker.start()).resolves.toBeTruthy()
+    await expect(engine.start()).resolves.toBeTruthy();
+
+    await expect(isBrokerAndEngineConnected()).resolves.toBeTruthy()
+    expect(await broker.checkCentralLogContains(['[core] [error] failover: global error: storage: Unable to initialize the storage connection to the database'])).toBeTruthy();
+
+
+    shell.exec('service mysql start')
+
+    let d =  Date.now();                 
+    
+    while (Date.now() < d + 20000)  {
+      let rawdata;
+      let jsonstats;
+      try { 
+        rawdata = readFileSync(path.resolve(__dirname, '/var/lib/centreon-broker/central-broker-master-stats.json'));
+        jsonstats = JSON.parse(rawdata.toString())
+      } catch (e) {
+        console.log(e)
+      }
+
+      if (!(Object.keys(rawdata).length == 0)) {
+        if (jsonstats['endpoint central-broker-master-sql'].hasOwnProperty('conflict_manager')) {
+          console.log(jsonstats['endpoint central-broker-master-sql']['conflict_manager'])
+          break;
+        }
+      }
+    }
+
+    await expect(broker.stop()).resolves.toBeTruthy();
+    await expect(engine.stop()).resolves.toBeTruthy();
+
+    await expect(broker.checkCoredump()).resolves.toBeFalsy()
+    await expect(engine.checkCoredump()).resolves.toBeFalsy()
+}, 350000)
+
