@@ -72,7 +72,7 @@ describe('broker testing', () => {
     }, 240000)
 
 
-    it('repeat 10 times start/stop broker with 1sec interval => no coredump', async () => {
+    it.only('repeat 10 times start/stop broker with 1sec interval => no coredump', async () => {
 
         const broker = new Broker();
         for (let i = 0; i < 10; ++i) {

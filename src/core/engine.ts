@@ -1,9 +1,9 @@
 
 import shell from 'shelljs'
 import psList from 'ps-list'
+import { ChildProcess } from 'child_process'
 import fs from 'fs/promises'
 import sleep from 'await-sleep'
-import { ChildProcess } from 'child_process'
 import { copyFile, copyFileSync, createReadStream, existsSync, mkdir, mkdirSync, open, rmSync, write } from 'fs'
 import { resolve } from 'path/posix'
 import { SIGHUP } from 'constants'
@@ -11,20 +11,24 @@ import readline from 'readline'
 
 export class Engine {
     hostgroup : number[] = [];
-    last_host_id : number = 0;
-    servicesByHost : number = 50;
-    nbCommands : number = 50;
+    static last_host_id : number = 0;
+    static servicesByHost : number = 50;
+    static nbCommands : number = 50;
+    static CENTREON_ENGINE_CONFIG_PATH : string[];
     static CENTREON_ENGINE_GID = parseInt(shell.exec('id -g centreon-engine'));
     static CENTREON_ENGINE_UID = parseInt(shell.exec('id -u centreon-engine'));
     CENTRON_ENGINE_CONFIG_PATH = '/etc/centreon-engine/centengine.cfg';
-    CENTREON_ENGINE_HOME = '/var/lib/centreon-engine-tests';
+    static CENTREON_ENGINE_HOME = '/var/lib/centreon-engine-tests';
     CENTREON_ENGINE_CONFIG_DIR = '/src/config/centreon-engine';
     static CENTREON_ENGINE_LOGS_PATH = '/var/log/centreon-engine/centengine.log';
-    lastMatchingLog : number;
-    pid : number = 0;
+    static lastMatchingLog : number[];
+    static instanceCount : number;
+    processes : ChildProcess[];
 
-    constructor() {
-        this.lastMatchingLog = Math.floor(Date.now() / 1000);
+    constructor(count : number = 1) {
+        Engine.instanceCount = count;
+        Engine.lastMatchingLog = new Array(count).map(x => Math.floor(Date.now() / 1000));
+        Engine.CENTREON_ENGINE_CONFIG_PATH = new Array(count).map(x => `/etc/centreon-engine/conf${x}/centengine.cfg`);
     }
 
     /**
@@ -34,10 +38,10 @@ export class Engine {
      * @returns Promise<Boolean> true if correctly started, else false
      */
     async start() : Promise<boolean> {
-        shell.exec('/usr/bin/systemctl start centengine');
-
-        let retval = await this.isRunning(20);
-        return retval;
+        for (let i = 0; i < Engine.instanceCount; i++) {
+            this.processes.push(shell.exec(`/usr/sbin/centengine ${Engine.CENTREON_ENGINE_CONFIG_PATH[i]}`, { async: true, uid: Engine.CENTREON_ENGINE_UID }));
+        }
+        return await this.isRunning(20);
     }
 
 
@@ -65,21 +69,21 @@ export class Engine {
         }
     }
 
-    async checkCoredump() : Promise<boolean> {
-        let retval : string;
-        const cdList = shell.exec('ps ax').stdout.split('\n')
-        retval = cdList.find(line => line.includes('/usr/lib/systemd/systemd-coredump'))
+  //  static async checkCoredump() : Promise<boolean> {
+  //      let retval : string;
+  //      const cdList = shell.exec('ps ax').stdout.split('\n')
+  //      retval = cdList.find(line => line.includes('/usr/lib/systemd/systemd-coredump'))
 
-        if (!retval) {
-            const cdList = shell.exec('/usr/bin/coredumpctl').stdout.split('\n')
-            retval = cdList.find(line => line.includes('cbd') &&
-                line.includes(this.pid + ""));
-        }
-        if (retval)
-            return true;
-        else
-            return false;
-    }
+  //      if (!retval) {
+  //          const cdList = shell.exec('/usr/bin/coredumpctl').stdout.split('\n')
+  //          retval = cdList.find(line => line.includes('cbd') &&
+  //              line.includes(this.pid + ""));
+  //      }
+  //      if (retval)
+  //          return true;
+  //      else
+  //          return false;
+  //  }
 
     static isRunning() : boolean {
         const cdList = shell.exec('ps ax | grep -v grep | grep centengine').stdout.split('\n')
@@ -98,15 +102,12 @@ export class Engine {
       * @returns Promise<Boolean>
       */
     async isRunning(seconds : number = 15) : Promise<boolean> {
+        let my_processes = Object.assign([], this.processes);
         for (let i = 0; i < seconds * 2; ++i) {
             const processList = await psList();
-            let process = processList.find((process) => process.name == 'centengine');
-
-            if (process) {
-                if (this.pid == 0)
-                    this.pid = process.pid;
+            my_processes = my_processes.filter(p => !processList.some(pp => pp.pid == p.pid));
+            if (my_processes.length == 0)
                 return true;
-            }
             await sleep(500);
         }
         return false;
@@ -137,9 +138,9 @@ export class Engine {
     }
 
 
-    createHost(id : number) : string {
-        if (id > this.last_host_id)
-            this.last_host_id = id;
+    static createHost() : string {
+        Engine.last_host_id++;
+        let id = Engine.last_host_id;
 
         let a = id % 255;
         let q = Math.floor(id / 255);
@@ -177,11 +178,11 @@ export class Engine {
         return retval;
     }
 
-    createCommand(commandId : number) : string {
+    static createCommand(commandId : number) : string {
         if (commandId % 2 == 0) {
             let retval = `define command {
     command_name                    command_${commandId}
-    command_line                    ${this.CENTREON_ENGINE_HOME}/${commandId}
+    command_line                    ${Engine.CENTREON_ENGINE_HOME}/${commandId}
     connector                       Perl Connector
 }
 `;
@@ -190,14 +191,14 @@ export class Engine {
         else {
             let retval = `define command {
     command_name                    command_${commandId}
-    command_line                    ${this.CENTREON_ENGINE_HOME}/check.pl ${commandId}
+    command_line                    ${Engine.CENTREON_ENGINE_HOME}/check.pl ${commandId}
 }
 `;
             return retval
         }
     }
 
-    createService(hostId : number, serviceId : number, nbCommands : number) : string {
+    static createService(hostId : number, serviceId : number, nbCommands : number) : string {
         let commandId = ((hostId + 1) * (serviceId + 1)) % nbCommands + 1;
         let retval = `define service {
     host_name                       host_${hostId}
@@ -215,122 +216,133 @@ export class Engine {
         return retval;
     }
 
-    async buildConfig(hosts : number = 50, servicesByHost : number = this.servicesByHost) : Promise<boolean> {
-        let configDir = process.cwd() + '/src/config/centreon-engine';
-        let scriptDir = process.cwd() + '/src/config/scripts';
-        if (existsSync(configDir)) {
-            rmSync(configDir, { recursive: true });
-        }
+    static async buildConfigs(hosts : number = 50, servicesByHost : number = Engine.servicesByHost) : Promise<boolean> {
+        let retval : boolean = false;
+        let v = Math.floor(hosts / Engine.instanceCount);
+        let last = hosts - (Engine.instanceCount - 1) * v;
+        let hostCounts : number[] = [];
+        for (let x = 0; x < Engine.instanceCount - 1; x++)
+            hostCounts.push(v);
+        hostCounts.push(last);
 
-        let p = new Promise((resolve, reject) => {
-            let count = hosts + hosts * servicesByHost + this.nbCommands + 1 /* for notification command */;
-            mkdir(configDir, () => {
-                open(configDir + '/hosts.cfg', 'w', (err, fd) => {
-                    if (err) {
-                        reject(err);
-                        return;
-                    }
-                    for (let i = 1; i <= hosts; ++i) {
-                        write(fd, Buffer.from(this.createHost(i)), (err) => {
-                            --count;    // one host written
-                            if (count <= 0) {
-                                resolve(true);
-                                return;
-                            }
+        for (let inst = 0; inst < Engine.instanceCount; inst++) {
+            let hosts = hostCounts[inst];
+            let configDir = process.cwd() + `/src/config/centreon-engine/config${inst}`;
+            let scriptDir = process.cwd() + '/src/config/scripts';
+            if (existsSync(configDir)) {
+                rmSync(configDir, { recursive: true });
+            }
 
-                            if (err) {
-                                reject(err);
-                                return;
-                            }
-
-                            open(configDir + '/services.cfg', 'a', (err, fd) => {
-                                if (err) {
-                                    reject(err);
-                                    return;
-                                }
-                                for (let j = 1; j <= servicesByHost; ++j) {
-                                    write(fd, Buffer.from(this.createService(i, j, this.nbCommands)), (err) => {
-                                        if (err) {
-                                            reject(err);
-                                            return;
-                                        }
-                                        --count;    // One service written
-                                        if (count <= 0) {
-                                            resolve(true);
-                                            return;
-                                        }
-                                    });
-                                }
-                            });
-                        });
-                    }
-                    open(configDir + '/commands.cfg', 'w', (err, fd) => {
-                        for (let i = 1; i <= this.nbCommands; ++i) {
-                            write(fd, Buffer.from(this.createCommand(i)), (err) => {
-                                if (err) {
-                                    reject(err);
-                                    return;
-                                }
-                                --count;    // One command written
+            let p = new Promise((resolve, reject) => {
+                let count = hosts + hosts * servicesByHost + Engine.nbCommands + 1 /* for notification command */;
+                mkdir(configDir, { recursive: true }, () => {
+                    open(configDir + '/hosts.cfg', 'w', (err, fd) => {
+                        if (err) {
+                            reject(err);
+                            return;
+                        }
+                        for (let i = 1; i <= hosts; ++i) {
+                            write(fd, Buffer.from(Engine.createHost()), (err) => {
+                                --count;    // one host written
                                 if (count <= 0) {
                                     resolve(true);
                                     return;
                                 }
+
+                                if (err) {
+                                    reject(err);
+                                    return;
+                                }
+
+                                open(configDir + '/services.cfg', 'a', (err, fd) => {
+                                    if (err) {
+                                        reject(err);
+                                        return;
+                                    }
+                                    for (let j = 1; j <= servicesByHost; ++j) {
+                                        write(fd, Buffer.from(Engine.createService(i, j, this.nbCommands)), (err) => {
+                                            if (err) {
+                                                reject(err);
+                                                return;
+                                            }
+                                            --count;    // One service written
+                                            if (count <= 0) {
+                                                resolve(true);
+                                                return;
+                                            }
+                                        });
+                                    }
+                                });
                             });
                         }
-                        write(fd, Buffer.from(`define command {
+                        open(configDir + '/commands.cfg', 'w', (err, fd) => {
+                            for (let i = 1; i <= this.nbCommands; ++i) {
+                                write(fd, Buffer.from(Engine.createCommand(i)), (err) => {
+                                    if (err) {
+                                        reject(err);
+                                        return;
+                                    }
+                                    --count;    // One command written
+                                    if (count <= 0) {
+                                        resolve(true);
+                                        return;
+                                    }
+                                });
+                            }
+                            write(fd, Buffer.from(`define command {
     command_name                    notif
-    command_line                    ${this.CENTREON_ENGINE_HOME}/notif.pl
+    command_line                    ${Engine.CENTREON_ENGINE_HOME}/notif.pl
 }
 define command {
     command_name                    test-notif
-    command_line                    ${this.CENTREON_ENGINE_HOME}/notif.pl
+    command_line                    ${Engine.CENTREON_ENGINE_HOME}/notif.pl
 }
 define command {
     command_name                    check
-    command_line                    ${this.CENTREON_ENGINE_HOME}/check.pl 0
+    command_line                    ${Engine.CENTREON_ENGINE_HOME}/check.pl 0
 }
 `), (err) => {
-                            if (err) {
-                                reject(err);
+                                if (err) {
+                                    reject(err);
+                                    return;
+                                }
+                            });
+                            --count; // one command written
+                            if (count <= 0) {
+                                resolve(true);
                                 return;
-                            }
+                            };
                         });
-                        --count; // one command written
-                        if (count <= 0) {
-                            resolve(true);
-                            return;
-                        };
                     });
+                    if (count <= 0)
+                        resolve(true);
                 });
-                if (count <= 0)
-                    resolve(true);
             });
-        });
 
-        let retval = p.then(ok => {
-            for (let f of ['commands.cfg', 'services.cfg', 'hosts.cfg'])
-                copyFileSync(configDir + '/' + f, '/etc/centreon-engine/' + f);
-            const configTestDir = process.cwd() + '/src/config/centreon-engine-config/';
-            for (let f of ['centengine.cfg', 'centreon-bam-host.cfg', 'dependencies.cfg', 'meta_services.cfg',
-                'centreon-bam-command.cfg', 'centreon-bam-services.cfg', 'escalations.cfg', 'meta_timeperiod.cfg',
-                'centreon-bam-contactgroups.cfg', 'centreon-bam-timeperiod.cfg', 'hostgroups.cfg', 'resource.cfg',
-                'centreon-bam-contacts.cfg', 'connectors.cfg', 'hostTemplates.cfg', 'servicegroups.cfg',
-                'centreon-bam-dependencies.cfg', 'contactgroups.cfg', 'meta_commands.cfg', 'serviceTemplates.cfg',
-                'centreon-bam-escalations.cfg', 'contacts.cfg', 'meta_host.cfg', 'timeperiods.cfg'])
-                copyFileSync(configTestDir + f, '/etc/centreon-engine/' + f);
+            retval = retval && p.then(ok => {
+                for (let f of ['commands.cfg', 'services.cfg', 'hosts.cfg'])
+                    copyFileSync(configDir + '/' + f, '/etc/centreon-engine/' + f);
+                const configTestDir = process.cwd() + '/src/config/centreon-engine-config/';
+                for (let f of ['centengine.cfg', 'centreon-bam-host.cfg', 'dependencies.cfg', 'meta_services.cfg',
+                    'centreon-bam-command.cfg', 'centreon-bam-services.cfg', 'escalations.cfg', 'meta_timeperiod.cfg',
+                    'centreon-bam-contactgroups.cfg', 'centreon-bam-timeperiod.cfg', 'hostgroups.cfg', 'resource.cfg',
+                    'centreon-bam-contacts.cfg', 'connectors.cfg', 'hostTemplates.cfg', 'servicegroups.cfg',
+                    'centreon-bam-dependencies.cfg', 'contactgroups.cfg', 'meta_commands.cfg', 'serviceTemplates.cfg',
+                    'centreon-bam-escalations.cfg', 'contacts.cfg', 'meta_host.cfg', 'timeperiods.cfg'])
+                    copyFileSync(configTestDir + f, '/etc/centreon-engine/' + f);
 
-            if (!existsSync(this.CENTREON_ENGINE_HOME))
-                mkdirSync(this.CENTREON_ENGINE_HOME);
+                if (!existsSync(Engine.CENTREON_ENGINE_HOME))
+                    mkdirSync(Engine.CENTREON_ENGINE_HOME);
 
-            for (let f of ['check.pl', 'notif.pl'])
-                copyFileSync(scriptDir + '/' + f, this.CENTREON_ENGINE_HOME + '/' + f)
-            return true;
-        })
-            .catch(err => {
-                console.log(err);
-                return false
-            });
+                for (let f of ['check.pl', 'notif.pl'])
+                    copyFileSync(scriptDir + '/' + f, Engine.CENTREON_ENGINE_HOME + '/' + f)
+                return true;
+            })
+                .catch(err => {
+                    console.log(err);
+                    return false
+                });
+        }
         return retval;
     }
 
@@ -365,120 +377,120 @@ define command {
         return retval;
     }
 
-    async addHost() : Promise<{ name : string, id : number }> {
-        let p = new Promise((resolve, reject) => {
-            let index = this.last_host_id + 1;
-            open(process.cwd() + this.CENTREON_ENGINE_CONFIG_DIR + '/hosts.cfg', 'a+', (err, fd) => {
-                if (err) {
-                    reject(err);
-                }
-                else {
-                    write(fd, Buffer.from(this.createHost(index)), (err) => {
-                        if (err) {
-                            reject(err);
-                        }
-                        open(process.cwd() + this.CENTREON_ENGINE_CONFIG_DIR + '/services.cfg', 'a', (err, fd) => {
-                            if (err) {
-                                reject(err);
-                            }
-                            let p = [];
-                            for (let j = 1; j <= this.servicesByHost; ++j) {
-                                p.push(write(fd, Buffer.from(this.createService(index, j, this.nbCommands)), (err) => {
-                                    if (err) {
-                                        reject(err);
-                                        return;
-                                    }
-                                }));
-                            }
-                            Promise.all(p);
-                            copyFile(process.cwd() + this.CENTREON_ENGINE_CONFIG_DIR + '/hosts.cfg', '/etc/centreon-engine/hosts.cfg', () => {
-                                copyFile(process.cwd() + this.CENTREON_ENGINE_CONFIG_DIR + '/services.cfg', '/etc/centreon-engine/services.cfg', () => {
-                                    resolve(index);
-                                });
-                            });
-                        });
-                    });
-                }
-            });
-        });
-
-        let retval = p.then((index : number) => {
-            return { name: "host_" + index, id: index };
-        }).catch(err => {
-            throw err;
-        });
-        return retval;
-    }
-
-    /*     async getLogs() : Promise<string> {
-            return (await fs.readFile(this.CENTREON_ENGINE_LOGS_PATH)).toString();
-        }*/
-
-    /**
-     *  this function is useful for checking that a log file contain some string
-     * @param  {Array<string>} strings list of string to check, every string in this array must be found in logs file
-     * @param  {number} seconds=15 number of second to wait before returning
-     * @returns {Promise<Boolean>} true if found, else false
-     */
-    async checkLogFileContains(strings : Array<string>, seconds : number = 15) : Promise<boolean> {
-        while (seconds > 0 && !existsSync(Engine.CENTREON_ENGINE_LOGS_PATH)) {
-            await sleep(1000);
-            seconds--;
-        }
-
-        let from = this.lastMatchingLog;
-        /* 3 possible values:
-         * 0 => failed
-         * 1 => succeed
-         * 2 => start again (the file reached its end without success).
-         */
-        let retval : Promise<number>;
-
-        do {
-            let p = new Promise((resolve, reject) => {
-                const rl = readline.createInterface({
-                    input: createReadStream(Engine.CENTREON_ENGINE_LOGS_PATH),
-                    terminal: false
-                });
-                rl.on('line', line => {
-                    let d = line.substring(1);
-                    let dd = parseInt(d);
-                    if (dd >= from) {
-                        let idx = strings.findIndex(s => line.includes(s));
-                        if (idx >= 0) {
-                            this.lastMatchingLog = dd;
-                            strings.splice(idx, 1);
-                            if (strings.length === 0) {
-                                resolve(true);
-                                return;
-                            }
-                        }
-                        if (dd - from > seconds)
-                            reject(`Cannot find strings <<${strings.join(', ')}>> in centengine.log`);
-                    }
-                });
-                rl.on('close', () => {
-                    reject('File closed');
-                })
-            });
-
-            retval = p.then((value : boolean) => {
-                if (!value) {
-                    console.log(`Cannot find strings <<${strings.join(', ')}>> in engine logs`);
-                    return 0;
-                }
-                else
-                    return 1;
-            })
-                .catch(err => {
-                    if (err == 'File closed')
-                        return 2;
-                    else {
-                        console.log(`Cannot find strings <<${strings.join(', ')}>> in engine logs`);
-                        return 0;
-                    }
-                });
-        } while ((await retval) == 2);
-        return (await retval) > 0;
-    }
+//    async addHost() : Promise<{ name : string, id : number }> {
+//        let p = new Promise((resolve, reject) => {
+//            let index = this.last_host_id + 1;
+//            open(process.cwd() + this.CENTREON_ENGINE_CONFIG_DIR + '/hosts.cfg', 'a+', (err, fd) => {
+//                if (err) {
+//                    reject(err);
+//                }
+//                else {
+//                    write(fd, Buffer.from(Engine.createHost(index)), (err) => {
+//                        if (err) {
+//                            reject(err);
+//                        }
+//                        open(process.cwd() + this.CENTREON_ENGINE_CONFIG_DIR + '/services.cfg', 'a', (err, fd) => {
+//                            if (err) {
+//                                reject(err);
+//                            }
+//                            let p = [];
+//                            for (let j = 1; j <= Engine.servicesByHost; ++j) {
+//                                p.push(write(fd, Buffer.from(Engine.createService(index, j, Engine.nbCommands)), (err) => {
+//                                    if (err) {
+//                                        reject(err);
+//                                        return;
+//                                    }
+//                                }));
+//                            }
+//                            Promise.all(p);
+//                            copyFile(process.cwd() + this.CENTREON_ENGINE_CONFIG_DIR + '/hosts.cfg', '/etc/centreon-engine/hosts.cfg', () => {
+//                                copyFile(process.cwd() + this.CENTREON_ENGINE_CONFIG_DIR + '/services.cfg', '/etc/centreon-engine/services.cfg', () => {
+//                                    resolve(index);
+//                                });
+//                            });
+//                        });
+//                    });
+//                }
+//            });
+//        });
+//
+//        let retval = p.then((index : number) => {
+//            return { name: "host_" + index, id: index };
+//        }).catch(err => {
+//            throw err;
+//        });
+//        return retval;
+//    }
+//
+//    /*     async getLogs() : Promise<string> {
+//            return (await fs.readFile(this.CENTREON_ENGINE_LOGS_PATH)).toString();
+//        }*/
+//
+//    /**
+//     *  this function is useful for checking that a log file contain some string
+//     * @param  {Array<string>} strings list of string to check, every string in this array must be found in logs file
+//     * @param  {number} seconds=15 number of second to wait before returning
+//     * @returns {Promise<Boolean>} true if found, else false
+//     */
+//    async checkLogFileContains(strings : Array<string>, seconds : number = 15) : Promise<boolean> {
+//        while (seconds > 0 && !existsSync(Engine.CENTREON_ENGINE_LOGS_PATH)) {
+//            await sleep(1000);
+//            seconds--;
+//        }
+//
+//        let from = this.lastMatchingLog;
+//        /* 3 possible values:
+//         * 0 => failed
+//         * 1 => succeed
+//         * 2 => start again (the file reached its end without success).
+//         */
+//        let retval : Promise<number>;
+//
+//        do {
+//            let p = new Promise((resolve, reject) => {
+//                const rl = readline.createInterface({
+//                    input: createReadStream(Engine.CENTREON_ENGINE_LOGS_PATH),
+//                    terminal: false
+//                });
+//                rl.on('line', line => {
+//                    let d = line.substring(1);
+//                    let dd = parseInt(d);
+//                    if (dd >= from) {
+//                        let idx = strings.findIndex(s => line.includes(s));
+//                        if (idx >= 0) {
+//                            this.lastMatchingLog = dd;
+//                            strings.splice(idx, 1);
+//                            if (strings.length === 0) {
+//                                resolve(true);
+//                                return;
+//                            }
+//                        }
+//                        if (dd - from > seconds)
+//                            reject(`Cannot find strings <<${strings.join(', ')}>> in centengine.log`);
+//                    }
+//                });
+//                rl.on('close', () => {
+//                    reject('File closed');
+//                })
+//            });
+//
+//            retval = p.then((value : boolean) => {
+//                if (!value) {
+//                    console.log(`Cannot find strings <<${strings.join(', ')}>> in engine logs`);
+//                    return 0;
+//                }
+//                else
+//                    return 1;
+//            })
+//                .catch(err => {
+//                    if (err == 'File closed')
+//                        return 2;
+//                    else {
+//                        console.log(`Cannot find strings <<${strings.join(', ')}>> in engine logs`);
+//                        return 0;
+//                    }
+//                });
+//        } while ((await retval) == 2);
+//        return (await retval) > 0;
+//    }
 }
