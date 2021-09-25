@@ -11,7 +11,8 @@ import readline from 'readline'
 
 export class Engine {
     hostgroup : number[] = [];
-    static last_host_id : number = 0;
+    static lastHostId : number = 0;
+    static lastServiceId : number = 0;
     static servicesByHost : number = 50;
     static nbCommands : number = 50;
     static CENTREON_ENGINE_CONFIG_PATH : string[];
@@ -139,8 +140,8 @@ export class Engine {
 
 
     static createHost() : string {
-        Engine.last_host_id++;
-        let id = Engine.last_host_id;
+        Engine.lastHostId++;
+        let id = Engine.lastHostId;
 
         let a = id % 255;
         let q = Math.floor(id / 255);
@@ -198,7 +199,8 @@ export class Engine {
         }
     }
 
-    static createService(hostId : number, serviceId : number, nbCommands : number) : string {
+    static createService(hostId : number, nbCommands : number) : string {
+        let serviceId = ++Engine.lastServiceId;
         let commandId = ((hostId + 1) * (serviceId + 1)) % nbCommands + 1;
         let retval = `define service {
     host_name                       host_${hostId}
@@ -218,9 +220,11 @@ export class Engine {
 
     static async buildConfigs(hosts : number = 50, servicesByHost : number = Engine.servicesByHost) : Promise<boolean> {
         let retval : boolean = false;
+
+        /* Construction of an array by instance with the good number of hosts */
+        let hostCounts : number[] = [];
         let v = Math.floor(hosts / Engine.instanceCount);
         let last = hosts - (Engine.instanceCount - 1) * v;
-        let hostCounts : number[] = [];
         for (let x = 0; x < Engine.instanceCount - 1; x++)
             hostCounts.push(v);
         hostCounts.push(last);
@@ -260,7 +264,7 @@ export class Engine {
                                         return;
                                     }
                                     for (let j = 1; j <= servicesByHost; ++j) {
-                                        write(fd, Buffer.from(Engine.createService(i, j, this.nbCommands)), (err) => {
+                                        write(fd, Buffer.from(Engine.createService(i, this.nbCommands)), (err) => {
                                             if (err) {
                                                 reject(err);
                                                 return;
