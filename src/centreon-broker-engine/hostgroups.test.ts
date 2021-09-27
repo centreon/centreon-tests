@@ -40,11 +40,11 @@ describe('engine reloads with new hosts and hostgroups configurations', () => {
         await expect(broker.start()).resolves.toBeTruthy();
 
         const engine = new Engine();
-        expect(await engine.buildConfig()).toBeTruthy();
+        expect(await Engine.buildConfigs()).toBeTruthy();
         expect(await engine.start()).toBeTruthy();
         console.log("engine started");
 
-        await engine.checkLogFileContains(["Event broker module '/usr/lib64/nagios/cbmod.so' initialized successfully"], 120);
+        await engine.checkLogFileContains(0, ["Event broker module '/usr/lib64/nagios/cbmod.so' initialized successfully"], 120);
         console.log("cbmod loaded");
 
         await expect(isBrokerAndEngineConnected()).resolves.toBeTruthy()
@@ -56,7 +56,7 @@ describe('engine reloads with new hosts and hostgroups configurations', () => {
         await Promise.all(p);
         console.log("Engine and broker reloaded");
 
-        await engine.checkLogFileContains(["Event broker module '/usr/lib64/nagios/cbmod.so' initialized successfully"], 120);
+        await engine.checkLogFileContains(0, ["Event broker module '/usr/lib64/nagios/cbmod.so' initialized successfully"], 120);
         console.log("cbmod module reloaded");
         await expect(isBrokerAndEngineConnected()).resolves.toBeTruthy();
         console.log("Broker and Engine connected");
@@ -75,11 +75,11 @@ describe('engine reloads with new hosts and hostgroups configurations', () => {
         await expect(broker.start()).resolves.toBeTruthy();
 
         const engine = new Engine();
-        expect(await engine.buildConfig()).toBeTruthy();
+        expect(await Engine.buildConfigs()).toBeTruthy();
         expect(await engine.start()).toBeTruthy();
         console.log("engine started");
 
-        await engine.checkLogFileContains(["Event broker module '/usr/lib64/nagios/cbmod.so' initialized successfully"], 120);
+        await engine.checkLogFileContains(0, ["Event broker module '/usr/lib64/nagios/cbmod.so' initialized successfully"], 120);
         console.log("cbmod loaded");
 
         await expect(isBrokerAndEngineConnected()).resolves.toBeTruthy()
@@ -91,7 +91,7 @@ describe('engine reloads with new hosts and hostgroups configurations', () => {
         await Promise.all(p);
         console.log("Engine and broker reloaded");
 
-        await engine.checkLogFileContains(["Event broker module '/usr/lib64/nagios/cbmod.so' initialized successfully"], 120);
+        await engine.checkLogFileContains(0, ["Event broker module '/usr/lib64/nagios/cbmod.so' initialized successfully"], 120);
         console.log("cbmod module reloaded");
         await expect(isBrokerAndEngineConnected()).resolves.toBeTruthy();
         console.log("Broker and Engine connected");
@@ -100,7 +100,7 @@ describe('engine reloads with new hosts and hostgroups configurations', () => {
         let logs : string[] = [];
 
         for (let i = 0; i < 50; i++) {
-            let host = await engine.addHost();
+            let host = await engine.addHost(0);
             hostnames.push(host.name);
             let group = await engine.addHostgroup(i + 2, hostnames);
             logs.push(`SQL: enabling membership of host ${host.id} to host group ${group.id} on instance 1`);

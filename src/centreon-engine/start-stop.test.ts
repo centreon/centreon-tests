@@ -22,19 +22,19 @@ describe("start and stop engine", () => {
 
     it('start/stop centengine', async () => {
         const engine = new Engine();
-        engine.buildConfig(50, 40);
-        const isStarted = await engine.start();
-        expect(isStarted).toBeTruthy();
+        Engine.buildConfigs(50, 40);
+        const started = await engine.start();
+        expect(started).toBeTruthy();
 
-        const isStoped = await engine.stop();
-        expect(isStoped).toBeTruthy();
+        const stopped = await engine.stop();
+        expect(stopped).toBeTruthy();
         expect(await engine.checkCoredump()).toBeFalsy()
     }, 30000);
 
     it('start and stop many instances engine', async () => {
 
-        for (let i = 0; i < 3; ++i) {
-            console.log(`Step ${i + 1}/3`);
+        for (let i = 0; i < 10; ++i) {
+            console.log(`Step ${i + 1}/10`);
             const engine = new Engine();
             const isStarted = await engine.start();
             expect(isStarted).toBeTruthy();
@@ -45,6 +45,5 @@ describe("start and stop engine", () => {
             expect(await engine.checkCoredump()).toBeFalsy();
         }
     }, 120000);
-
 
 })

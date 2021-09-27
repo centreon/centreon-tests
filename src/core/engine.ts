@@ -1,6 +1,6 @@
 import shell from 'shelljs'
 import psList from 'ps-list'
-import { ChildProcess } from 'child_process'
+import { ChildProcess, exec, spawn, spawnSync } from 'child_process'
 import fs from 'fs/promises'
 import sleep from 'await-sleep'
 import { chownSync, copyFile, copyFileSync, createReadStream, existsSync, mkdir, mkdirSync, open, rmSync, statSync, write } from 'fs'
@@ -38,12 +38,16 @@ export class Engine {
      * @returns Promise<Boolean> true if correctly started, else false
      */
     async start() : Promise<boolean> {
+        this.processes = [];
         for (let i = 0; i < Engine.instanceCount; i++) {
             mkdirSync(`/var/log/centreon-engine/config${i}/`, { recursive: true });
             chownSync(`/var/log/centreon-engine/config${i}/`, Engine.CENTREON_ENGINE_UID, Engine.CENTREON_ENGINE_GID);
             mkdirSync(`/var/lib/centreon-engine/config${i}/`, { recursive: true });
             chownSync(`/var/lib/centreon-engine/config${i}/`, Engine.CENTREON_ENGINE_UID, Engine.CENTREON_ENGINE_GID);
-            this.processes.push(shell.exec(`/usr/sbin/centengine ${Engine.CENTREON_ENGINE_CONFIG_PATH[i]}`, { async: true, uid: Engine.CENTREON_ENGINE_UID }));
+            mkdirSync(`/var/lib/centreon-engine/config${i}/rw`, { recursive: true });
+            chownSync(`/var/lib/centreon-engine/config${i}/rw`, Engine.CENTREON_ENGINE_UID, Engine.CENTREON_ENGINE_GID);
+            Engine.lastMatchingLog = new Array(Engine.instanceCount).fill(Math.floor(Date.now() / 1000));
+            this.processes.push(shell.exec(`/usr/sbin/centengine /etc/centreon-engine/config${i}/centengine.cfg`, { async: true, uid: Engine.CENTREON_ENGINE_UID }));
         }
         return await this.isRunning(20);
     }
@@ -55,11 +59,10 @@ export class Engine {
      * @returns Promise<Boolean> true if correctly stopped, else false
      */
     async stop() : Promise<boolean> {
-        if (await this.isRunning(5)) {
-            shell.exec('systemctl stop centengine');
-        }
+        for (let p of this.processes)
+            p.kill();
 
-        return true;
+        return await this.isStopped(25);
     }
 
     static clearLogs() : void {
@@ -69,25 +72,29 @@ export class Engine {
 
     async reload() {
         if (await this.isRunning(5)) {
-            shell.exec('/usr/bin/systemctl reload centengine');
+            for (let p of this.processes)
+                p.kill(SIGHUP);
         }
     }
 
-    //  static async checkCoredump() : Promise<boolean> {
-    //      let retval : string;
-    //      const cdList = shell.exec('ps ax').stdout.split('\n')
-    //      retval = cdList.find(line => line.includes('/usr/lib/systemd/systemd-coredump'))
+    async checkCoredump() : Promise<boolean> {
+        let pids = this.processes.map((value) => {
+            return value.pid;
+        });
+        let retval : string;
+        const cdList = shell.exec('ps ax').stdout.split('\n')
+        retval = cdList.find(line => line.includes('/usr/lib/systemd/systemd-coredump'))
 
-    //      if (!retval) {
-    //          const cdList = shell.exec('/usr/bin/coredumpctl').stdout.split('\n')
-    //          retval = cdList.find(line => line.includes('cbd') &&
-    //              line.includes(this.pid + ""));
-    //      }
-    //      if (retval)
-    //          return true;
-    //      else
-    //          return false;
-    //  }
+        if (!retval) {
+            const cdList = shell.exec('/usr/bin/coredumpctl').stdout.split('\n')
+            retval = cdList.find(line => line.includes('centengine') &&
+                pids.some(pid => line.includes(pid + "")));
+        }
+        if (retval)
+            return true;
+        else
+            return false;
+    }
 
     static isRunning() : boolean {
         const cdList = shell.exec('ps ax | grep -v grep | grep centengine').stdout.split('\n')
@@ -110,6 +117,24 @@ export class Engine {
         for (let i = 0; i < seconds * 2; ++i) {
             const processList = await psList();
             my_processes = my_processes.filter(p => !processList.some(pp => pp.pid == p.pid));
+            if (my_processes.length == 0)
+                return true;
+            await sleep(500);
+        }
+        return false;
+    }
+
+    /**
+      * this function checks that processes in the list of all processes are stopped.
+      *
+      * @param  {number=15} seconds number of seconds to wait for process to show in processlist
+      * @returns Promise<Boolean>
+      */
+    async isStopped(seconds : number = 15) : Promise<boolean> {
+        let my_processes = Object.assign([], this.processes);
+        for (let i = 0; i < seconds * 2; ++i) {
+            const processList = await psList();
+            my_processes = my_processes.filter(p => processList.some(pp => pp.pid == p.pid));
             if (my_processes.length == 0)
                 return true;
             await sleep(500);
@@ -160,7 +185,7 @@ cfg_file=/etc/centreon-engine/config${id}/connectors.cfg
 #cfg_file=/etc/centreon-engine/config${id}/meta_timeperiod.cfg
 #cfg_file=/etc/centreon-engine/config${id}/meta_host.cfg
 #cfg_file=/etc/centreon-engine/config${id}/meta_services.cfg
-broker_module=/usr/lib64/centreon-engine/config${id}/externalcmd.so
+broker_module=/usr/lib64/centreon-engine/externalcmd.so
 broker_module=/usr/lib64/nagios/cbmod.so /etc/centreon-broker/poller-module.json
 interval_length=60
 use_timezone=:Europe/Paris
@@ -376,7 +401,7 @@ enable_flap_detection=0
                                         return;
                                     }
                                     for (let j = 1; j <= servicesByHost; ++j) {
-                                        write(fd, Buffer.from(Engine.createService(h.id, [inst * this.nbCommands + 1, (inst + 1) * this.nbCommands])), (err) => {
+                                        write(fd, Buffer.from(Engine.createService(h.id, [inst * Engine.nbCommands + 1, (inst + 1) * Engine.nbCommands])), (err) => {
                                             if (err) {
                                                 reject(err);
                                                 return;
@@ -494,120 +519,127 @@ define command {
         return retval;
     }
 
-    //    async addHost() : Promise<{ name : string, id : number }> {
-    //        let p = new Promise((resolve, reject) => {
-    //            let index = this.last_host_id + 1;
-    //            open(process.cwd() + this.CENTREON_ENGINE_CONFIG_DIR + '/hosts.cfg', 'a+', (err, fd) => {
-    //                if (err) {
-    //                    reject(err);
-    //                }
-    //                else {
-    //                    write(fd, Buffer.from(Engine.createHost(index)), (err) => {
-    //                        if (err) {
-    //                            reject(err);
-    //                        }
-    //                        open(process.cwd() + this.CENTREON_ENGINE_CONFIG_DIR + '/services.cfg', 'a', (err, fd) => {
-    //                            if (err) {
-    //                                reject(err);
-    //                            }
-    //                            let p = [];
-    //                            for (let j = 1; j <= Engine.servicesByHost; ++j) {
-    //                                p.push(write(fd, Buffer.from(Engine.createService(index, j, Engine.nbCommands)), (err) => {
-    //                                    if (err) {
-    //                                        reject(err);
-    //                                        return;
-    //                                    }
-    //                                }));
-    //                            }
-    //                            Promise.all(p);
-    //                            copyFile(process.cwd() + this.CENTREON_ENGINE_CONFIG_DIR + '/hosts.cfg', '/etc/centreon-engine/hosts.cfg', () => {
-    //                                copyFile(process.cwd() + this.CENTREON_ENGINE_CONFIG_DIR + '/services.cfg', '/etc/centreon-engine/services.cfg', () => {
-    //                                    resolve(index);
-    //                                });
-    //                            });
-    //                        });
-    //                    });
-    //                }
-    //            });
-    //        });
-    //
-    //        let retval = p.then((index : number) => {
-    //            return { name: "host_" + index, id: index };
-    //        }).catch(err => {
-    //            throw err;
-    //        });
-    //        return retval;
-    //    }
-    //
-    //    /*     async getLogs() : Promise<string> {
-    //            return (await fs.readFile(this.CENTREON_ENGINE_LOGS_PATH)).toString();
-    //        }*/
-    //
-    //    /**
-    //     *  this function is useful for checking that a log file contain some string
-    //     * @param  {Array<string>} strings list of string to check, every string in this array must be found in logs file
-    //     * @param  {number} seconds=15 number of second to wait before returning
-    //     * @returns {Promise<Boolean>} true if found, else false
-    //     */
-    //    async checkLogFileContains(strings : Array<string>, seconds : number = 15) : Promise<boolean> {
-    //        while (seconds > 0 && !existsSync(Engine.CENTREON_ENGINE_LOGS_PATH)) {
-    //            await sleep(1000);
-    //            seconds--;
-    //        }
-    //
-    //        let from = this.lastMatchingLog;
-    //        /* 3 possible values:
-    //         * 0 => failed
-    //         * 1 => succeed
-    //         * 2 => start again (the file reached its end without success).
-    //         */
-    //        let retval : Promise<number>;
-    //
-    //        do {
-    //            let p = new Promise((resolve, reject) => {
-    //                const rl = readline.createInterface({
-    //                    input: createReadStream(Engine.CENTREON_ENGINE_LOGS_PATH),
-    //                    terminal: false
-    //                });
-    //                rl.on('line', line => {
-    //                    let d = line.substring(1);
-    //                    let dd = parseInt(d);
-    //                    if (dd >= from) {
-    //                        let idx = strings.findIndex(s => line.includes(s));
-    //                        if (idx >= 0) {
-    //                            this.lastMatchingLog = dd;
-    //                            strings.splice(idx, 1);
-    //                            if (strings.length === 0) {
-    //                                resolve(true);
-    //                                return;
-    //                            }
-    //                        }
-    //                        if (dd - from > seconds)
-    //                            reject(`Cannot find strings <<${strings.join(', ')}>> in centengine.log`);
-    //                    }
-    //                });
-    //                rl.on('close', () => {
-    //                    reject('File closed');
-    //                })
-    //            });
-    //
-    //            retval = p.then((value : boolean) => {
-    //                if (!value) {
-    //                    console.log(`Cannot find strings <<${strings.join(', ')}>> in engine logs`);
-    //                    return 0;
-    //                }
-    //                else
-    //                    return 1;
-    //            })
-    //                .catch(err => {
-    //                    if (err == 'File closed')
-    //                        return 2;
-    //                    else {
-    //                        console.log(`Cannot find strings <<${strings.join(', ')}>> in engine logs`);
-    //                        return 0;
-    //                    }
-    //                });
-    //        } while ((await retval) == 2);
-    //        return (await retval) > 0;
-    //    }
+    /**
+     * 
+     * @param inst The instance concerned by the new host.
+     * @returns an object with two attributes, id which is the host id and config which is the string giving the host configuration.
+     */
+    async addHost(inst: number) : Promise<{ name : string, id : number }> {
+        const srcConfig = process.cwd() + this.CENTREON_ENGINE_CONFIG_DIR + `/config${inst}/`;
+        let p = new Promise((resolve, reject) => {
+            open(srcConfig + 'hosts.cfg', 'a+', (err, fd) => {
+                if (err) {
+                    reject(err);
+                }
+                else {
+                    let h = Engine.createHost();
+                    write(fd, Buffer.from(h.config), (err) => {
+                        if (err) {
+                            reject(err);
+                        }
+                        open(srcConfig + 'services.cfg', 'a+', (err, fd) => {
+                            if (err) {
+                                reject(err);
+                            }
+                            let p = [];
+                            for (let j = 1; j <= Engine.servicesByHost; ++j) {
+                                p.push(write(fd, Buffer.from(Engine.createService(h.id, [inst * Engine.nbCommands + 1, (inst + 1) * Engine.nbCommands])), (err) => {
+                                    if (err) {
+                                        reject(err);
+                                        return;
+                                    }
+                                }));
+                            }
+                            Promise.all(p);
+                            copyFile(process.cwd() + this.CENTREON_ENGINE_CONFIG_DIR + '/hosts.cfg', '/etc/centreon-engine/hosts.cfg', () => {
+                                copyFile(process.cwd() + this.CENTREON_ENGINE_CONFIG_DIR + '/services.cfg', '/etc/centreon-engine/services.cfg', () => {
+                                    resolve(h.id);
+                                });
+                            });
+                        });
+                    });
+                }
+            });
+        });
+
+        let retval = p.then((index : number) => {
+            return { name: "host_" + index, id: index };
+        }).catch(err => {
+            throw err;
+        });
+        return retval;
+    }
+
+    /*     async getLogs() : Promise<string> {
+            return (await fs.readFile(this.CENTREON_ENGINE_LOGS_PATH)).toString();
+        }*/
+
+    /**
+     *  this function is useful for checking that a log file contain some string
+     * @param  {Array<string>} strings list of string to check, every string in this array must be found in logs file
+     * @param  {number} seconds=15 number of second to wait before returning
+     * @returns {Promise<Boolean>} true if found, else false
+     */
+    async checkLogFileContains(inst : number, strings : Array<string>, seconds : number = 15) : Promise<boolean> {
+        const logFile = `/var/log/centreon-engine/config${inst}/centengine.log`;
+        while (seconds > 0 && !existsSync(logFile)) {
+            await sleep(1000);
+            seconds--;
+        }
+
+        let from = Engine.lastMatchingLog[inst];
+        /* 3 possible values:
+         * 0 => failed
+         * 1 => succeed
+         * 2 => start again (the file reached its end without success).
+         */
+        let retval : Promise<number>;
+
+        do {
+            let p = new Promise((resolve, reject) => {
+                const rl = readline.createInterface({
+                    input: createReadStream(logFile),
+                    terminal: false
+                });
+                rl.on('line', line => {
+                    let d = line.substring(1);
+                    let dd = parseInt(d);
+                    if (dd >= from) {
+                        let idx = strings.findIndex(s => line.includes(s));
+                        if (idx >= 0) {
+                            Engine.lastMatchingLog[inst] = dd;
+                            strings.splice(idx, 1);
+                            if (strings.length === 0) {
+                                resolve(true);
+                                return;
+                            }
+                        }
+                        if (dd - from > seconds)
+                            reject(`Cannot find strings <<${strings.join(', ')}>> in centengine.log`);
+                    }
+                });
+                rl.on('close', () => {
+                    reject('File closed');
+                })
+            });
+
+            retval = p.then((value : boolean) => {
+                if (!value) {
+                    console.log(`Cannot find strings <<${strings.join(', ')}>> in engine logs`);
+                    return 0;
+                }
+                else
+                    return 1;
+            })
+                .catch(err => {
+                    if (err == 'File closed')
+                        return 2;
+                    else {
+                        console.log(`Cannot find strings <<${strings.join(', ')}>> in engine logs`);
+                        return 0;
+                    }
+                });
+        } while ((await retval) == 2);
+        return (await retval) > 0;
+    }
 }
