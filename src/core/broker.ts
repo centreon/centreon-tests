@@ -50,7 +50,7 @@ export class Broker {
         if (this.instanceCount == 2)
             this.rrdProcess = shell.exec(`/usr/sbin/cbd ${Broker.CENTREON_BROKER_CONFIG_PATH[BrokerType.rrd]}`, { async: true, uid: Broker.CENTREON_BROKER_UID })
 
-        return await this.isRunning(20);
+        return await this.isRunning(5, 2);
     }
 
 
@@ -75,31 +75,43 @@ export class Broker {
 
 
     /**
-     * this function will check the list of all process running in current os
-     * to check that the current instance of broker is correctly running or not
+     * check the list of all running processes, and return true if they are *all* running.
      *
      * @param  {boolean=true} expected the expected value, true or false
-     * @param  {number=15} seconds number of seconds to wait for process to show in processlist
+     * @param  {number=15} waitTime number of seconds to wait for process to show in processlist
+     * @param  {number=0} flapTime duration to check that everything is working
      * @returns Promise<Boolean>
      */
-    async isRunning(seconds : number = 15) : Promise<boolean> {
-        let centreonBrokerProcess;
-        let centreonRddProcess;
+    async isRunning(waitTime : number = 15, flapTime: number = 0) : Promise<boolean> {
+        let centralProcess: psList.ProcessDescriptor;
+        let rrdProcess: psList.ProcessDescriptor;
 
-        for (let i = 0; i < seconds * 2; ++i) {
+        let now = Date.now();
+        let limit = now + waitTime * 1000;
+        while (now < limit) {
             const processList = await psList();
+            if (!centralProcess)
+                centralProcess = processList.find((process) => process.pid == this.process.pid);
+            if (!rrdProcess && this.instanceCount == 2)
+                rrdProcess = processList.find((process) => process.pid == this.rrdProcess.pid);
 
-            centreonBrokerProcess = processList.find((process) => process.pid == this.process.pid);
+            if (centralProcess && (this.instanceCount == 1 || rrdProcess))
+                break;
+            now = Date.now();
+        }
+        if (!centralProcess || (this.instanceCount == 2 && !rrdProcess))
+            return false;
 
+        now = Date.now();
+        limit = now + flapTime * 1000;
+        while (now < limit) {
+            await sleep(500);
+            const processList = await psList();
+            centralProcess = processList.find((process) => process.pid == this.process.pid);
             if (this.instanceCount == 2)
-                centreonRddProcess = processList.find((process) => process.pid == this.rrdProcess.pid);
-            else
-                centreonRddProcess = true
-
-            if (centreonBrokerProcess && centreonRddProcess)
-                return true;
-
-            await sleep(500)
+                rrdProcess = processList.find((process) => process.pid == this.rrdProcess.pid);
+            if (!centralProcess || (this.instanceCount == 2 && !rrdProcess))
+                return false;
         }
 
         return false;

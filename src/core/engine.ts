@@ -7,11 +7,13 @@ import { chownSync, copyFile, copyFileSync, createReadStream, existsSync, mkdir,
 import { resolve } from 'path/posix'
 import { SIGHUP } from 'constants'
 import readline from 'readline'
+import { Broker, BrokerType } from './broker'
 
 export class Engine {
     hostgroup : number[] = [];
     static lastHostId : number = 0;
     static lastServiceId : number = 0;
+    static lastHostgroupId : number = 0;
     static servicesByHost : number = 50;
     static nbCommands : number = 50;
     static CENTREON_ENGINE_CONFIG_PATH : string[];
@@ -286,15 +288,18 @@ enable_flap_detection=0
         return { config: retval, id: id };
     }
 
-    static createHostgroup(id : number, children : string[]) {
+    static createHostgroup(children : string[]) : { config : string, id : number } {
+        const id = ++Engine.lastHostgroupId;
         let members = children.join(',');
-        let retval = `define hostgroup {
+        let retval = {
+            config: `define hostgroup {
     hostgroup_id                    ${id}
     hostgroup_name                  hostgroup_${id}
     alias                           hostgroup_${id}
     members                         ${members}
 }
-`;
+`, id: id
+        };
         return retval;
     }
 
@@ -461,18 +466,7 @@ define command {
             });
 
             retval = p.then(ok => {
-                mkdirSync(`/etc/centreon-engine/config${inst}`, { recursive: true });
-                for (let f of ['centengine.cfg', 'commands.cfg', 'services.cfg', 'hosts.cfg'])
-                    copyFileSync(configDir + '/' + f, `/etc/centreon-engine/config${inst}/` + f);
-                const configTestDir = process.cwd() + `/src/config/centreon-engine-config/`;
-                for (let f of ['centreon-bam-host.cfg', 'dependencies.cfg', 'meta_services.cfg',
-                    'centreon-bam-command.cfg', 'centreon-bam-services.cfg', 'escalations.cfg', 'meta_timeperiod.cfg',
-                    'centreon-bam-contactgroups.cfg', 'centreon-bam-timeperiod.cfg', 'hostgroups.cfg', 'resource.cfg',
-                    'centreon-bam-contacts.cfg', 'connectors.cfg', 'hostTemplates.cfg', 'servicegroups.cfg',
-                    'centreon-bam-dependencies.cfg', 'contactgroups.cfg', 'meta_commands.cfg', 'serviceTemplates.cfg',
-                    'centreon-bam-escalations.cfg', 'contacts.cfg', 'meta_host.cfg', 'timeperiods.cfg'])
-                    copyFileSync(configTestDir + f, `/etc/centreon-engine/config${inst}/` + f);
-
+                Broker.resetConfig(BrokerType.module);
                 if (!existsSync(Engine.CENTREON_ENGINE_HOME))
                     mkdirSync(Engine.CENTREON_ENGINE_HOME);
 
@@ -488,20 +482,22 @@ define command {
         return retval;
     }
 
-    async addHostgroup(index : number, members : string[]) : Promise<{ id : number, members : string[] }> {
+    async addHostgroup(inst : number, index : number, members : string[]) : Promise<{ id : number, members : string[] }> {
+        const srcConfig = process.cwd() + this.CENTREON_ENGINE_CONFIG_DIR + `/config${inst}/hostgroups.cfg`;
         let p = new Promise((resolve, reject) => {
+            let hg = Engine.createHostgroup(members);
             if (this.hostgroup.indexOf(index) < 0) {
-                open(process.cwd() + this.CENTREON_ENGINE_CONFIG_DIR + '/hostgroups.cfg', 'a+', (err, fd) => {
+                open(srcConfig, 'a+', (err, fd) => {
                     if (err) {
                         reject(err);
                     }
                     else {
-                        write(fd, Buffer.from(Engine.createHostgroup(index, members)), (err) => {
+                        write(fd, Buffer.from(hg.config), (err) => {
                             if (err) {
                                 reject(err);
                             }
                             this.hostgroup.push(index);
-                            copyFile(process.cwd() + this.CENTREON_ENGINE_CONFIG_DIR + '/hostgroups.cfg', '/etc/centreon-engine/hostgroups.cfg', () => {
+                            copyFile(srcConfig, `/etc/centreon-engine/config${inst}/hostgroups.cfg`, () => {
                                 resolve(true);
                             })
                         });
@@ -524,7 +520,7 @@ define command {
      * @param inst The instance concerned by the new host.
      * @returns an object with two attributes, id which is the host id and config which is the string giving the host configuration.
      */
-    async addHost(inst: number) : Promise<{ name : string, id : number }> {
+    async addHost(inst : number) : Promise<{ name : string, id : number }> {
         const srcConfig = process.cwd() + this.CENTREON_ENGINE_CONFIG_DIR + `/config${inst}/`;
         let p = new Promise((resolve, reject) => {
             open(srcConfig + 'hosts.cfg', 'a+', (err, fd) => {

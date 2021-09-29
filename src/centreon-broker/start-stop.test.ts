@@ -1,6 +1,5 @@
 import sleep from 'await-sleep';
 import shell from 'shelljs';
-import { once } from 'events'
 import { Broker, BrokerType } from '../core/broker';
 import { Engine } from '../core/engine';
 
@@ -22,7 +21,7 @@ describe('broker testing', () => {
     })
 
 
-    it('start/stop centreon broker => no coredump', async () => {
+    it.only('start/stop centreon broker => no coredump', async () => {
         const broker = new Broker();
 
         const isStarted = await broker.start();
@@ -72,7 +71,7 @@ describe('broker testing', () => {
     }, 240000)
 
 
-    it.only('repeat 10 times start/stop broker with 1sec interval => no coredump', async () => {
+    it('repeat 10 times start/stop broker with 1sec interval => no coredump', async () => {
 
         const broker = new Broker();
         for (let i = 0; i < 10; ++i) {
@@ -87,5 +86,5 @@ describe('broker testing', () => {
 
             expect(await broker.checkCoredump()).toBeFalsy()
         }
-    }, 240000)
+    }, 300000)
 });

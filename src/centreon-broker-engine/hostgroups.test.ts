@@ -85,7 +85,7 @@ describe('engine reloads with new hosts and hostgroups configurations', () => {
         await expect(isBrokerAndEngineConnected()).resolves.toBeTruthy()
         console.log("Broker and Engine connected");
 
-        await expect(engine.addHostgroup(1, ['host_1', 'host_2', 'host_3'])).resolves.toBeTruthy();
+        await expect(engine.addHostgroup(0, 1, ['host_1', 'host_2', 'host_3'])).resolves.toBeTruthy();
         console.log("New host group 1");
         let p = [engine.reload(), broker.reload()];
         await Promise.all(p);
