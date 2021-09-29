@@ -251,7 +251,7 @@ it("mariadb server down", async () => {
   expect(await broker.checkCoredump()).toBeFalsy();
 }, 300000);
 
-it.only("repeat 20 times start/stop cbd with a wrong configuration in perfdata", async () => {
+it("repeat 20 times start/stop cbd with a wrong configuration in perfdata", async () => {
   const config = await Broker.getConfig(BrokerType.central);
   const centralBrokerMasterPerfdata = config["centreonBroker"]["output"].find(
     (output) => output.name === "central-broker-master-perfdata"
@@ -284,7 +284,7 @@ it.only("repeat 20 times start/stop cbd with a wrong configuration in perfdata",
   ).toBeTruthy();
 }, 350000);
 
-it.only("repeat 20 times start/stop cbd with a wrong configuration in sql", async () => {
+it("repeat 20 times start/stop cbd with a wrong configuration in sql", async () => {
   const config = await Broker.getConfig(BrokerType.central);
   const centralBrokerMasterSql = config["centreonBroker"]["output"].find(
     (output) => output.name === "central-broker-master-sql"
