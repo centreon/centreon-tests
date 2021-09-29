@@ -11,6 +11,7 @@ describe('broker testing', () => {
         Engine.cleanAllInstances();
         Broker.clearLogs(BrokerType.central);
         Broker.resetConfig(BrokerType.central);
+        Broker.resetConfig(BrokerType.rrd);
     })
 
     afterAll(() => {
@@ -20,17 +21,23 @@ describe('broker testing', () => {
         })
     })
 
-
+    /**
+     * The two instances of broker are started. Then we check they are correctly started.
+     * The two instances are stopped. Then we check they are correctly stopped.
+     * And we check no coredump has been produced.
+     */
     it.only('start/stop centreon broker => no coredump', async () => {
         const broker = new Broker();
 
         const isStarted = await broker.start();
-        expect(isStarted).toBeTruthy()
-
-        const isStopped = await broker.stop()
+        let isStopped = false;
+        if (isStarted) {
+            isStopped = await broker.stop();
+            expect(await broker.checkCoredump()).toBeFalsy()
+        }
+        Broker.cleanAllInstances();
+        expect(isStarted).toBeTruthy();
         expect(isStopped).toBeTruthy();
-
-        expect(await broker.checkCoredump()).toBeFalsy()
     }, 60000);
 
 

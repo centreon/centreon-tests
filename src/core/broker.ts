@@ -1,6 +1,6 @@
 import shell from 'shelljs'
 import psList from 'ps-list'
-import { chownSync, unlinkSync, existsSync, createReadStream, rmSync, writeFileSync, writeSync, readdirSync } from 'fs'
+import { chownSync, unlinkSync, existsSync, createReadStream, rmSync, writeFileSync, writeSync, readdirSync, copyFileSync } from 'fs'
 import fs from 'fs/promises'
 import { ChildProcess } from 'child_process'
 import sleep from 'await-sleep';
@@ -8,6 +8,7 @@ import path from 'path';
 import { strict as assert } from 'assert';
 import { SIGHUP } from 'constants';
 import readline from 'readline'
+import { is } from '@babel/types'
 
 export enum BrokerType {
     central = 0,
@@ -46,11 +47,14 @@ export class Broker {
      * @returns Promise<Boolean> true if correctly started, else false
      */
     async start() : Promise<boolean> {
-        this.process = shell.exec(`/usr/sbin/cbd ${Broker.CENTREON_BROKER_CONFIG_PATH[BrokerType.central]}`, { async: true, uid: Broker.CENTREON_BROKER_UID })
-        if (this.instanceCount == 2)
-            this.rrdProcess = shell.exec(`/usr/sbin/cbd ${Broker.CENTREON_BROKER_CONFIG_PATH[BrokerType.rrd]}`, { async: true, uid: Broker.CENTREON_BROKER_UID })
+        if (!await this.isRunning(1)) {
+            this.process = shell.exec(`/usr/sbin/cbd ${Broker.CENTREON_BROKER_CONFIG_PATH[BrokerType.central]}`, { async: true, uid: Broker.CENTREON_BROKER_UID })
+            if (this.instanceCount == 2)
+                this.rrdProcess = shell.exec(`/usr/sbin/cbd ${Broker.CENTREON_BROKER_CONFIG_PATH[BrokerType.rrd]}`, { async: true, uid: Broker.CENTREON_BROKER_UID })
 
-        return await this.isRunning(5, 2);
+            return await this.isRunning(5, 2);
+        }
+        return true;
     }
 
 
@@ -60,16 +64,14 @@ export class Broker {
      * @returns Promise<Boolean> true if correctly stopped, else false
      */
     async stop() : Promise<boolean> {
-        if (await this.isRunning(25)) {
-            let ret1 = this.process.kill()
+        if (!await this.isStopped(1)) {
+            this.process.kill()
 
-            let ret2 = true;
             if (this.instanceCount == 2)
-                ret2 = this.rrdProcess.kill()
+                this.rrdProcess.kill()
 
             return await this.isStopped(25);
         }
-
         return true;
     }
 
@@ -83,6 +85,8 @@ export class Broker {
      * @returns Promise<Boolean>
      */
     async isRunning(waitTime : number = 15, flapTime: number = 0) : Promise<boolean> {
+        if (!this.process || (this.instanceCount == 2 && !this.rrdProcess))
+            return false;
         let centralProcess: psList.ProcessDescriptor;
         let rrdProcess: psList.ProcessDescriptor;
 
@@ -112,9 +116,10 @@ export class Broker {
                 rrdProcess = processList.find((process) => process.pid == this.rrdProcess.pid);
             if (!centralProcess || (this.instanceCount == 2 && !rrdProcess))
                 return false;
+            now = Date.now();
         }
 
-        return false;
+        return true;
     }
 
     /**
@@ -126,25 +131,21 @@ export class Broker {
      * @returns Promise<Boolean>
      */
     async isStopped(seconds : number = 15) : Promise<boolean> {
-        let centreonBrokerProcess;
-        let centreonRddProcess;
+        let centralProcess: psList.ProcessDescriptor;
+        let rrdProcess: psList.ProcessDescriptor;
 
-        for (let i = 0; i < seconds * 2; ++i) {
+        let now = Date.now();
+        let limit = now + seconds * 1000;
+        while (now < limit) {
             const processList = await psList();
-
-            centreonBrokerProcess = processList.find((process) => process.pid == this.process.pid);
-
+            centralProcess = processList.find((process) => process.pid == this.process.pid);
             if (this.instanceCount == 2)
-                centreonRddProcess = processList.find((process) => process.pid == this.rrdProcess.pid);
-            else
-                centreonRddProcess = false
+                rrdProcess = processList.find((process) => process.pid == this.rrdProcess.pid);
 
-            if (!centreonBrokerProcess && !centreonRddProcess)
+            if (!centralProcess && (this.instanceCount == 1 || !rrdProcess))
                 return true;
-
-            await sleep(500)
+            now = Date.now();
         }
-
         return false;
     }
 
@@ -157,7 +158,7 @@ export class Broker {
     }
 
     async checkCoredump() : Promise<boolean> {
-        let retval;
+        let retval:string;
         const cdList = shell.exec('ps ax').stdout.split('\n')
         retval = cdList.find(line => line.includes('/usr/lib/systemd/systemd-coredump'))
 
@@ -208,10 +209,10 @@ export class Broker {
                 conf = '../config/centreon-module.json';
                 break;
             case BrokerType.rrd:
-                conf = '../config/centreon-rrd.json';
+                conf = '../config/central-rrd.json';
                 break;
         }
-        return shell.cp(path.join(__dirname, conf), Broker.CENTREON_BROKER_CONFIG_PATH[type]);
+        copyFileSync(path.join(__dirname, conf), Broker.CENTREON_BROKER_CONFIG_PATH[type]);
     }
 
     /**
