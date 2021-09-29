@@ -245,10 +245,10 @@ export class Broker {
     let conf: string;
     switch (type) {
       case BrokerType.central:
-        conf = "../config/centreon-broker.json";
+        conf = "../config/central-broker.json";
         break;
       case BrokerType.module:
-        conf = "../config/centreon-module.json";
+        conf = "../config/central-module.json";
         break;
       case BrokerType.rrd:
         conf = "../config/central-rrd.json";
