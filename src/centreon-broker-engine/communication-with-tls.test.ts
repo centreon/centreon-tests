@@ -227,7 +227,7 @@ describe("engine and broker testing in same time for compression", () => {
     expect(stopped2).toBeTruthy();
   }, 90000);
 
-  it("TLS with keys checks between broker - engine but no CA", async () => {
+  it("Anonymous TLS with CA between broker - engine", async () => {
     const broker = new Broker();
     const engine = new Engine();
 
