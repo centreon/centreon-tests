@@ -12,8 +12,10 @@ import {
   mkdir,
   mkdirSync,
   open,
+  rm,
   rmdirSync,
   rmSync,
+  stat,
   write,
 } from "fs";
 import { SIGHUP } from "constants";
@@ -105,12 +107,15 @@ export class Engine {
   async stop(): Promise<boolean> {
     for (let p of this.processes) p.kill();
 
-    return await this.isStopped(25);
+    return this.isStopped(25);
   }
 
   static clearLogs(): void {
-    if (existsSync(Engine.CENTREON_ENGINE_LOGS_PATH))
-      rmSync(Engine.CENTREON_ENGINE_LOGS_PATH);
+    let i: number = 0;
+    while (existsSync(`/var/log/centreon-engine/config${i}/centengine.log`)) {
+      rmSync(`/var/log/centreon-engine/config${i}/centengine.log`);
+      i++;
+    }
   }
 
   async reload() {

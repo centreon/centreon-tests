@@ -3,7 +3,7 @@ import { Broker, BrokerType } from "../core/broker";
 import { Engine } from "../core/engine";
 import { isBrokerAndEngineConnected } from "../core/brokerEngine";
 import sleep from "await-sleep";
-
+import { readFileSync } from "fs";
 shell.config.silent = true;
 
 describe("engine and broker testing in same time", () => {
@@ -12,97 +12,103 @@ describe("engine and broker testing in same time", () => {
     await Broker.cleanAllInstances();
 
     Broker.clearLogs(BrokerType.central);
-    Broker.resetConfig(BrokerType.central);
     Engine.clearLogs();
+    Broker.resetConfig(BrokerType.central);
 
-    if (Broker.isInstancesRunning() || Engine.isRunning()) {
+    if (Broker.isInstancesRunning() || Engine.isInstancesRunning()) {
       console.log("program could not stop cbd or centengine");
       process.exit(1);
     }
   });
 
-  afterAll(() => {
-    beforeEach(async () => {
-      await Engine.cleanAllInstances();
-      await Broker.cleanAllInstances();
-
-      //Broker.clearLogs();
-      //Broker.resetConfig();
-      //Engine.clearLogs();
-    });
-  });
-
   it("start/stop centreon broker/engine - broker first", async () => {
+    Broker.startMysql();
+
     const broker = new Broker(1);
-    await expect(broker.start()).resolves.toBeTruthy();
-
     const engine = new Engine();
-    await expect(engine.start()).resolves.toBeTruthy();
+    Engine.buildConfigs();
 
-    await expect(isBrokerAndEngineConnected()).resolves.toBeTruthy();
+    const started1 = await broker.start();
+    const started2 = await engine.start();
+    const connected = await isBrokerAndEngineConnected();
 
-    await expect(engine.stop()).resolves.toBeTruthy();
-    await expect(engine.start()).resolves.toBeTruthy();
+    const stopped1 = await broker.stop();
+    const stopped2 = await engine.stop();
 
-    await expect(isBrokerAndEngineConnected()).resolves.toBeTruthy();
+    Broker.cleanAllInstances();
+    Engine.cleanAllInstances();
 
-    await expect(engine.stop()).resolves.toBeTruthy();
-    await expect(broker.stop()).resolves.toBeTruthy();
+    expect(started1).toBeTruthy();
+    expect(started2).toBeTruthy();
+    expect(connected).toBeTruthy();
+    expect(stopped1).toBeTruthy();
+    expect(stopped2).toBeTruthy();
 
     await expect(broker.checkCoredump()).resolves.toBeFalsy();
     await expect(engine.checkCoredump()).resolves.toBeFalsy();
   }, 60000);
 
   it("start/stop centreon broker/engine - engine first", async () => {
-    const engine = new Engine();
-    await expect(engine.start()).resolves.toBeTruthy();
-
     const broker = new Broker(1);
-    await expect(broker.start()).resolves.toBeTruthy();
+    const engine = new Engine();
 
-    await expect(isBrokerAndEngineConnected()).resolves.toBeTruthy();
+    const started2 = await engine.start();
+    const started1 = await broker.start();
+    const connected = await isBrokerAndEngineConnected();
 
-    await expect(broker.stop()).resolves.toBeTruthy();
-    await expect(broker.start()).resolves.toBeTruthy();
+    const stopped1 = await broker.stop();
+    const stopped2 = await engine.stop();
 
-    await expect(isBrokerAndEngineConnected()).resolves.toBeTruthy();
+    Broker.cleanAllInstances();
+    Engine.cleanAllInstances();
 
-    await expect(broker.stop()).resolves.toBeTruthy();
-    await expect(engine.stop()).resolves.toBeTruthy();
+    expect(started1).toBeTruthy();
+    expect(started2).toBeTruthy();
+    expect(connected).toBeTruthy();
+    expect(stopped1).toBeTruthy();
+    expect(stopped2).toBeTruthy();
 
     await expect(broker.checkCoredump()).resolves.toBeFalsy();
     await expect(engine.checkCoredump()).resolves.toBeFalsy();
   }, 60000);
 
   it("should handle database service stop and start", async () => {
-    const broker = new Broker();
+    const broker = new Broker(1);
 
     shell.exec("service mysql stop");
 
-    await expect(Broker.isMySqlRunning()).resolves.toBeTruthy();
-
-    await expect(broker.start()).resolves.toBeTruthy();
+    const dbStopped = Broker.isMySqlStopped();
 
     const engine = new Engine();
-    await expect(engine.start()).resolves.toBeTruthy();
 
-    await expect(isBrokerAndEngineConnected()).resolves.toBeTruthy();
+    const started1 = await broker.start();
+    const started2 = await engine.start();
+    const connected = await isBrokerAndEngineConnected();
 
-    await expect(
-      broker.checkCentralLogContains([
-        "[core] [error] failover: global error: storage: Unable to initialize the storage connection to the database",
-      ])
-    ).resolves.toBeTruthy();
+    const checkLog = broker.checkCentralLogContains([
+      "[core] [error] failover: global error: storage: Unable to initialize the storage connection to the database",
+    ]);
 
-    await expect(broker.stop()).resolves.toBeTruthy();
-    await expect(engine.stop()).resolves.toBeTruthy();
+    const stopped1 = await broker.stop();
+    const stopped2 = await engine.stop();
+
+    Broker.cleanAllInstances();
+    Engine.cleanAllInstances();
+
+    expect(dbStopped).toBeTruthy();
+    expect(started1).toBeTruthy();
+    expect(started2).toBeTruthy();
+    expect(connected).toBeTruthy();
+    expect(checkLog).toBeTruthy();
+    expect(stopped1).toBeTruthy();
+    expect(stopped2).toBeTruthy();
 
     await expect(broker.checkCoredump()).resolves.toBeFalsy();
     await expect(engine.checkCoredump()).resolves.toBeFalsy();
   }, 60000);
 });
 
-it.only("broker without database", async () => {
+it("broker without database", async () => {
   const duration = 20000;
   const broker = new Broker();
   const engine = new Engine();
@@ -129,10 +135,7 @@ it.only("broker without database", async () => {
       let jsonstats;
       try {
         rawdata = readFileSync(
-          path.resolve(
-            __dirname,
-            "/var/lib/centreon-broker/central-broker-master-stats.json"
-          )
+          "/var/lib/centreon-broker/central-broker-master-stats.json"
         ).toString();
         jsonstats = JSON.parse(rawdata);
       } catch (e) {

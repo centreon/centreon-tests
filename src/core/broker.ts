@@ -89,7 +89,7 @@ export class Broker {
 
       if (this.instanceCount == 2) this.rrdProcess.kill(SIGTERM);
 
-      return await this.isStopped(40);
+      return this.isStopped(40);
     }
     return true;
   }
@@ -434,12 +434,34 @@ export class Broker {
       rmSync(Broker.CENTREON_BROKER_MODULE_LOGS_PATH);
   }
 
-  static async isMySqlRunning(): Promise<Boolean> {
-    const cdList = shell.exec("systemctl status mysql").stdout.split("\n");
-    let retval;
-    retval = cdList.find((line) => line.includes("inactive"));
-    if (retval) return true;
-    else return false;
+  static startMysql() {
+    if (this.isMySqlStarted(1)) return true;
+    shell.exec("systemctl start mysqld");
+  }
+
+  static isMySqlStarted(waitTime: number = 20): boolean {
+    let now = Date.now();
+    const limit = now + waitTime * 1000;
+
+    while (now < limit) {
+      const cdList = shell.exec("systemctl status mysql").stdout.split("\n");
+      let retval = cdList.find((line) => line.includes("active (running)"));
+      if (retval) return true;
+      now = Date.now();
+    }
+    return false;
+  }
+  static isMySqlStopped(waitTime: number = 20): boolean {
+    let now = Date.now();
+    const limit = now + waitTime * 1000;
+
+    while (now < limit) {
+      const cdList = shell.exec("systemctl status mysql").stdout.split("\n");
+      let retval = cdList.find((line) => line.includes("inactive"));
+      if (retval) return true;
+      now = Date.now();
+    }
+    return false;
   }
 
   /**
