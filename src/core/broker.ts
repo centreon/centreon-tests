@@ -16,7 +16,7 @@ import { ChildProcess } from "child_process";
 import sleep from "await-sleep";
 import path from "path";
 import { strict as assert } from "assert";
-import { SIGHUP } from "constants";
+import { SIGHUP, SIGTERM } from "constants";
 import readline from "readline";
 
 export enum BrokerType {
@@ -85,11 +85,11 @@ export class Broker {
    */
   async stop(): Promise<boolean> {
     if (!(await this.isStopped(1))) {
-      this.process.kill();
+      this.process.kill(SIGTERM);
 
-      if (this.instanceCount == 2) this.rrdProcess.kill();
+      if (this.instanceCount == 2) this.rrdProcess.kill(SIGTERM);
 
-      return await this.isStopped(25);
+      return await this.isStopped(40);
     }
     return true;
   }
@@ -176,6 +176,7 @@ export class Broker {
 
       if (!centralProcess && (this.instanceCount == 1 || !rrdProcess))
         return true;
+      await sleep(500);
       now = Date.now();
     }
     return false;
@@ -309,6 +310,7 @@ export class Broker {
               strings.splice(idx, 1);
               if (strings.length === 0) {
                 resolve(true);
+                rl.close();
                 return;
               }
             }
@@ -318,6 +320,7 @@ export class Broker {
                   ", "
                 )}>> in centengine.log`
               );
+              rl.close();
               return;
             }
           }

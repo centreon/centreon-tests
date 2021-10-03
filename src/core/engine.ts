@@ -1,4 +1,5 @@
 import shell from "shelljs";
+import path from "path";
 import psList from "ps-list";
 import { ChildProcess } from "child_process";
 import sleep from "await-sleep";
@@ -11,6 +12,7 @@ import {
   mkdir,
   mkdirSync,
   open,
+  rmdirSync,
   rmSync,
   write,
 } from "fs";
@@ -53,37 +55,46 @@ export class Engine {
    * @returns Promise<Boolean> true if correctly started, else false
    */
   async start(): Promise<boolean> {
-    this.processes = [];
-    for (let i = 0; i < Engine.instanceCount; i++) {
-      mkdirSync(`/var/log/centreon-engine/config${i}/`, { recursive: true });
-      chownSync(
-        `/var/log/centreon-engine/config${i}/`,
-        Engine.CENTREON_ENGINE_UID,
-        Engine.CENTREON_ENGINE_GID
-      );
-      mkdirSync(`/var/lib/centreon-engine/config${i}/`, { recursive: true });
-      chownSync(
-        `/var/lib/centreon-engine/config${i}/`,
-        Engine.CENTREON_ENGINE_UID,
-        Engine.CENTREON_ENGINE_GID
-      );
-      mkdirSync(`/var/lib/centreon-engine/config${i}/rw`, { recursive: true });
-      chownSync(
-        `/var/lib/centreon-engine/config${i}/rw`,
-        Engine.CENTREON_ENGINE_UID,
-        Engine.CENTREON_ENGINE_GID
-      );
-      Engine.lastMatchingLog = new Array(Engine.instanceCount).fill(
-        Math.floor(Date.now() / 1000)
-      );
-      this.processes.push(
-        shell.exec(
-          `/usr/sbin/centengine /etc/centreon-engine/config${i}/centengine.cfg`,
-          { async: true, uid: Engine.CENTREON_ENGINE_UID }
-        )
-      );
+    if (!(await this.isRunning(1))) {
+      this.processes = [];
+      for (let i = 0; i < Engine.instanceCount; i++) {
+        mkdirSync(`/var/log/centreon-engine/config${i}/`, { recursive: true });
+        chownSync(
+          `/var/log/centreon-engine/config${i}/`,
+          Engine.CENTREON_ENGINE_UID,
+          Engine.CENTREON_ENGINE_GID
+        );
+        mkdirSync(`/var/lib/centreon-engine/config${i}/`, { recursive: true });
+        chownSync(
+          `/var/lib/centreon-engine/config${i}/`,
+          Engine.CENTREON_ENGINE_UID,
+          Engine.CENTREON_ENGINE_GID
+        );
+        mkdirSync(`/var/lib/centreon-engine/config${i}/rw`, {
+          recursive: true,
+        });
+        chownSync(
+          `/var/lib/centreon-engine/config${i}/rw`,
+          Engine.CENTREON_ENGINE_UID,
+          Engine.CENTREON_ENGINE_GID
+        );
+        Engine.lastMatchingLog = new Array(Engine.instanceCount).fill(
+          Math.floor(Date.now() / 1000)
+        );
+        this.processes.push(
+          shell.exec(
+            `/usr/sbin/centengine /etc/centreon-engine/config${i}/centengine.cfg`,
+            {
+              async: true,
+              uid: Engine.CENTREON_ENGINE_UID,
+              gid: Engine.CENTREON_ENGINE_GID,
+            }
+          )
+        );
+      }
+      return await this.isRunning(5, 2);
     }
-    return await this.isRunning(20);
+    return true;
   }
 
   /**
@@ -130,33 +141,52 @@ export class Engine {
     else return false;
   }
 
-  static isRunning(): boolean {
-    const cdList = shell
-      .exec("ps ax | grep -v grep | grep centengine")
-      .stdout.split("\n");
-    let retval = cdList.find((line) => line.includes("/usr/sbin/centengine"));
-    if (retval) return true;
-    else return false;
-  }
-
   /**
-   * this function will check the list of all process running in current os
-   * to check that the current instance of engine is correctly running or not
+   * check the list of all running processes, and return true if they are *all* running.
    *
-   * @param  {number=15} seconds number of seconds to wait for process to show in processlist
+   * @param  {boolean=true} expected the expected value, true or false
+   * @param  {number=15} waitTime number of seconds to wait for process to show in processlist
+   * @param  {number=0} flapTime duration to check that everything is working
    * @returns Promise<Boolean>
    */
-  async isRunning(seconds: number = 15): Promise<boolean> {
-    let my_processes = Object.assign([], this.processes);
-    for (let i = 0; i < seconds * 2; ++i) {
+  async isRunning(
+    waitTime: number = 15,
+    flapTime: number = 0
+  ): Promise<boolean> {
+    if (!this.processes || !this.processes.every((v) => v)) return false;
+    let p = new Array<psList.ProcessDescriptor>(Engine.instanceCount).fill(
+      null
+    );
+    let now = Date.now();
+    let limit = now + waitTime * 1000;
+    while (now < limit) {
       const processList = await psList();
-      my_processes = my_processes.filter(
-        (p) => !processList.some((pp) => pp.pid == p.pid)
-      );
-      if (my_processes.length == 0) return true;
-      await sleep(500);
+      for (let i = 0; i < Engine.instanceCount; i++) {
+        if (!p[i])
+          p[i] = processList.find(
+            (process) => process.pid == this.processes[i].pid
+          );
+      }
+      if (p.every((v) => v)) break;
+      now = Date.now();
     }
-    return false;
+    if (p.some((v) => !v)) return false;
+
+    now = Date.now();
+    limit = now + flapTime * 1000;
+    while (now < limit) {
+      await sleep(500);
+      const processList = await psList();
+      for (let i = 0; i < Engine.instanceCount; i++) {
+        p[i] = processList.find(
+          (process) => process.pid == this.processes[i].pid
+        );
+      }
+      if (p.some((v) => !v)) return false;
+      now = Date.now();
+    }
+
+    return true;
   }
 
   /**
@@ -190,12 +220,27 @@ export class Engine {
     });
   }
 
+  static isServiceRunning(): boolean {
+    const cdList = shell.exec("systemctl status centengine").stdout.split("\n");
+    if (cdList.find((line) => line.includes("running"))) return true;
+    else return false;
+  }
+
+  static isInstancesRunning(): boolean {
+    let instances = shell
+      .exec("ps ax | grep -v grep | grep '/sbin/centengine'")
+      .stdout.split("\n");
+    instances = instances.filter(String);
+    if (instances != undefined && instances.length) return true;
+    else return false;
+  }
+
   static async cleanAllInstances(): Promise<void> {
     /* close centengine if running */
-    if (Engine.isRunning()) shell.exec("systemctl stop centengine");
+    if (Engine.isServiceRunning()) shell.exec("systemctl stop centengine");
 
     /* closes instances of centengine if running */
-    if (Engine.isRunning()) {
+    if (Engine.isInstancesRunning()) {
       await Engine.closeInstances();
     }
   }
@@ -219,7 +264,7 @@ cfg_file=/etc/centreon-engine/config${id}/connectors.cfg
 #cfg_file=/etc/centreon-engine/config${id}/meta_host.cfg
 #cfg_file=/etc/centreon-engine/config${id}/meta_services.cfg
 broker_module=/usr/lib64/centreon-engine/externalcmd.so
-broker_module=/usr/lib64/nagios/cbmod.so /etc/centreon-broker/poller-module.json
+broker_module=/usr/lib64/nagios/cbmod.so /etc/centreon-broker/central-module.json
 interval_length=60
 use_timezone=:Europe/Paris
 resource_file=/etc/centreon-engine/config${id}/resource.cfg
@@ -374,6 +419,38 @@ enable_flap_detection=0
     return retval;
   }
 
+  static async installConfigs() {
+    rmdirSync("/etc/centreon-engine", { recursive: true });
+    mkdirSync("/etc/centreon-engine");
+    chownSync(
+      "/etc/centreon-engine",
+      this.CENTREON_ENGINE_UID,
+      this.CENTREON_ENGINE_GID
+    );
+    for (let inst = 0; inst < Engine.instanceCount; inst++) {
+      mkdir(`/etc/centreon-engine/config${inst}`, () => {
+        for (let f of [
+          "centengine.cfg",
+          "commands.cfg",
+          "connectors.cfg",
+          "resource.cfg",
+          "hostgroups.cfg",
+          "timeperiods.cfg",
+          "hosts.cfg",
+          "services.cfg",
+        ]) {
+          copyFileSync(
+            path.join(
+              __dirname,
+              `../config/centreon-engine/config${inst}/${f}`
+            ),
+            `/etc/centreon-engine/config${inst}/${f}`
+          );
+        }
+      });
+    }
+  }
+
   static async buildConfigs(
     hosts: number = 50,
     servicesByHost: number = Engine.servicesByHost
@@ -402,7 +479,11 @@ enable_flap_detection=0
           hosts * servicesByHost +
           Engine.nbCommands +
           1 /* for notification command */ +
-          1; /* for centengine.cfg */
+          1 /* for centengine.cfg */ +
+          1 /* for connectors.cfg */ +
+          1 /* for resource.cfg */ +
+          1 /* for timeperiods.cfg */ +
+          1; /* for hostgroups.cfg */
         mkdir(configDir, { recursive: true }, () => {
           open(configDir + "/centengine.cfg", "w", (err, fd) => {
             if (err) {
@@ -510,6 +591,75 @@ define command {
                   }
                 }
               );
+              --count; // one command written
+              if (count <= 0) {
+                resolve(true);
+                return;
+              }
+            });
+            open(configDir + "/connectors.cfg", "w", (err, fd) => {
+              write(
+                fd,
+                Buffer.from(`define connector {                                                              
+    connector_name                 Perl Connector                               
+    connector_line                 /usr/lib64/centreon-connector/centreon_connector_perl 
+}                                                                               
+                                                                                
+define connector {                                                              
+    connector_name                 SSH Connector                                
+    connector_line                 /usr/lib64/centreon-connector/centreon_connector_ssh 
+}                       
+`),
+                (err) => {
+                  if (err) {
+                    reject(err);
+                    return;
+                  }
+                }
+              );
+              --count; // one command written
+              if (count <= 0) {
+                resolve(true);
+                return;
+              }
+            });
+            open(configDir + "/resource.cfg", "w", (err, fd) => {
+              --count; // one command written
+              if (count <= 0) {
+                resolve(true);
+                return;
+              }
+            });
+            open(configDir + "/timeperiods.cfg", "w", (err, fd) => {
+              write(
+                fd,
+                Buffer.from(`define timeperiod {
+    name                           24x7
+    timeperiod_name                24x7
+    alias                          24_Hours_A_Day,_7_Days_A_Week
+    sunday                         00:00-24:00
+    monday                         00:00-24:00
+    tuesday                        00:00-24:00
+    wednesday                      00:00-24:00
+    thursday                       00:00-24:00
+    friday                         00:00-24:00
+    saturday                       00:00-24:00
+}                       
+`),
+                (err) => {
+                  if (err) {
+                    reject(err);
+                    return;
+                  }
+                }
+              );
+              --count; // one command written
+              if (count <= 0) {
+                resolve(true);
+                return;
+              }
+            });
+            open(configDir + "/hostgroups.cfg", "w", (err, fd) => {
               --count; // one command written
               if (count <= 0) {
                 resolve(true);
