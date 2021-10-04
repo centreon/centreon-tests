@@ -21,7 +21,7 @@ afterEach(async () => {
   Broker.cleanAllInstances();
 });
 
-it("should deny access when database name exists but is not the good one for sql output", async () => {
+it("BDB1: should deny access when database name exists but is not the good one for sql output", async () => {
   const config = await Broker.getConfig(BrokerType.central);
   const centralBrokerMasterSql = config["centreonBroker"]["output"].find(
     (output) => output.name === "central-broker-master-sql"
@@ -31,21 +31,24 @@ it("should deny access when database name exists but is not the good one for sql
 
   /* Loading of the two broker instances. */
   const broker = new Broker();
-  const isStarted = await broker.start();
-  const logTest1 = await broker.checkCentralLogContains([
-    "Table 'centreon.instances' doesn't exist",
-  ]);
-  const isStopped = await broker.stop();
+  for (let i = 0; i < 5; i++) {
+    const started = await broker.start();
+    const checkLog1 = await broker.checkCentralLogContains([
+      "Table 'centreon.instances' doesn't exist",
+    ]);
+    const stopped = await broker.stop();
+    const cd = await broker.checkCoredump();
 
-  Broker.cleanAllInstances();
+    Broker.cleanAllInstances();
 
-  expect(isStarted).toBeTruthy();
-  expect(logTest1).toBeTruthy();
-  expect(isStopped).toBeTruthy();
-  expect(await broker.checkCoredump()).toBeFalsy();
+    expect(started).toBeTruthy();
+    expect(checkLog1).toBeTruthy();
+    expect(stopped).toBeTruthy();
+    expect(cd).toBeFalsy();
+  }
 }, 120000);
 
-it("should deny access when database name exists but is not the good one for storage output", async () => {
+it("BDB2: should deny access when database name exists but is not the good one for storage output", async () => {
   const config = await Broker.getConfig(BrokerType.central);
   const centrealBrokerMasterPerfData = config["centreonBroker"]["output"].find(
     (output) => output.name === "central-broker-master-perfdata"
@@ -54,22 +57,25 @@ it("should deny access when database name exists but is not the good one for sto
   await Broker.writeConfig(BrokerType.central, config);
 
   const broker = new Broker();
-  const started = await broker.start();
-  const checkLog1 = await broker.checkCentralLogContains([
-    "[sql] [error] storage: rebuilder: Unable to connect to the database: storage: rebuilder: could not fetch index to rebuild",
-  ]);
-  const isStopped = await broker.stop();
+  for (let i = 0; i < 5; i++) {
+    const started = await broker.start();
+    const checkLog1 = await broker.checkCentralLogContains([
+      "[sql] [error] storage: rebuilder: Unable to connect to the database: storage: rebuilder: could not fetch index to rebuild",
+    ]);
+    const stopped = await broker.stop();
+    const cd = await broker.checkCoredump();
 
-  /* Cleanup */
-  Broker.cleanAllInstances();
+    /* Cleanup */
+    Broker.cleanAllInstances();
 
-  expect(started).toBeTruthy();
-  expect(checkLog1).toBeTruthy();
-  expect(isStopped).toBeTruthy();
-  expect(await broker.checkCoredump()).toBeFalsy();
+    expect(started).toBeTruthy();
+    expect(checkLog1).toBeTruthy();
+    expect(stopped).toBeTruthy();
+    expect(cd).toBeFalsy();
+  }
 }, 30000);
 
-it("should deny access when database name does not exists for sql output", async () => {
+it("BDB3: should deny access when database name does not exists for sql output", async () => {
   const config = await Broker.getConfig(BrokerType.central);
   const centralBrokerMasterSql = config["centreonBroker"]["output"].find(
     (output) => output.name === "central-broker-master-sql"
@@ -78,23 +84,25 @@ it("should deny access when database name does not exists for sql output", async
   await Broker.writeConfig(BrokerType.central, config);
 
   const broker = new Broker();
-  const started = await broker.start();
+  for (let i = 0; i < 5; i++) {
+    const started = await broker.start();
+    let checkLog1 = await broker.checkCentralLogContains([
+      "[core] [error] failover: global error: mysql_connection: error while starting connection",
+    ]);
+    const stopped = await broker.stop();
+    const cd = await broker.checkCoredump();
 
-  let checkLog1 = await broker.checkCentralLogContains([
-    "[core] [error] failover: global error: mysql_connection: error while starting connection",
-  ]);
-  const stopped = await broker.stop();
+    /* Cleanup */
+    Broker.cleanAllInstances();
 
-  /* Cleanup */
-  Broker.cleanAllInstances();
-
-  expect(started).toBeTruthy();
-  expect(checkLog1).toBeTruthy();
-  expect(stopped).toBeTruthy();
-  expect(await broker.checkCoredump()).toBeFalsy();
+    expect(started).toBeTruthy();
+    expect(checkLog1).toBeTruthy();
+    expect(stopped).toBeTruthy();
+    expect(cd).toBeFalsy();
+  }
 }, 120000);
 
-it.only("should deny access when database name does not exist for storage output", async () => {
+it("BDB4: should deny access when database name does not exist for storage output", async () => {
   const config = await Broker.getConfig(BrokerType.central);
   const centrealBrokerMasterPerfData = config["centreonBroker"]["output"].find(
     (output) => output.name === "central-broker-master-perfdata"
@@ -103,24 +111,87 @@ it.only("should deny access when database name does not exist for storage output
   await Broker.writeConfig(BrokerType.central, config);
 
   const broker = new Broker();
-  const started = await broker.start();
+  for (let i = 0; i < 5; i++) {
+    const started = await broker.start();
 
-  const checkLog = await broker.checkCentralLogContains([
-    "[sql] [error] storage stream instanciation failed",
-  ]);
+    const checkLog1 = await broker.checkCentralLogContains([
+      "[sql] [error] storage stream instanciation failed",
+    ]);
 
-  const isStopped = await broker.stop();
+    const stopped = await broker.stop();
+    const cd = await broker.checkCoredump();
 
-  /* Cleanup */
-  Broker.cleanAllInstances();
+    /* Cleanup */
+    Broker.cleanAllInstances();
 
-  expect(started).toBeTruthy();
-  expect(checkLog).toBeTruthy();
-  expect(isStopped).toBeTruthy();
-  expect(await broker.checkCoredump()).toBeFalsy();
+    expect(started).toBeTruthy();
+    expect(checkLog1).toBeTruthy();
+    expect(stopped).toBeTruthy();
+    expect(cd).toBeFalsy();
+  }
 }, 30000);
 
-it.only("should deny access when database user password is wrong for sql", async () => {
+it("BDB5: cbd does not crash if the storage db host is wrong", async () => {
+  const config = await Broker.getConfig(BrokerType.central);
+  const centrealBrokerMasterPerfData = config["centreonBroker"]["output"].find(
+    (output) => output.name === "central-broker-master-perfdata"
+  );
+  centrealBrokerMasterPerfData["db_host"] = "1.2.3.4";
+  await Broker.writeConfig(BrokerType.central, config);
+
+  const broker = new Broker(1);
+  for (let i = 0; i < 10; i++) {
+    const started = await broker.start();
+
+    await sleep(2000);
+    const checkLog1 = await broker.checkCentralLogContains([
+      "[sql] [error] storage: rebuilder: Unable to connect to the database",
+    ]);
+
+    const stopped = await broker.stop();
+    const cd = await broker.checkCoredump();
+
+    /* Cleanup */
+    Broker.cleanAllInstances();
+
+    expect(started).toBeTruthy();
+    expect(checkLog1).toBeTruthy();
+    expect(stopped).toBeTruthy();
+    expect(cd).toBeFalsy();
+  }
+}, 200000);
+
+it("BDB6: cbd does not crash if the sql db host is wrong", async () => {
+  const config = await Broker.getConfig(BrokerType.central);
+  const centrealBrokerMasterPerfData = config["centreonBroker"]["output"].find(
+    (output) => output.name === "central-broker-master-sql"
+  );
+  centrealBrokerMasterPerfData["db_host"] = "1.2.3.4";
+  await Broker.writeConfig(BrokerType.central, config);
+
+  const broker = new Broker(1);
+  for (let i = 0; i < 10; i++) {
+    const started = await broker.start();
+
+    await sleep(2000);
+    const checkLog1 = await broker.checkCentralLogContains([
+      "[sql] [error] storage: rebuilder: Unable to connect to the database",
+    ]);
+
+    const stopped = await broker.stop();
+    const cd = await broker.checkCoredump();
+
+    /* Cleanup */
+    Broker.cleanAllInstances();
+
+    expect(started).toBeTruthy();
+    expect(checkLog1).toBeTruthy();
+    expect(stopped).toBeTruthy();
+    expect(cd).toBeFalsy();
+  }
+}, 200000);
+
+it("should deny access when database user password is wrong for sql", async () => {
   const config = await Broker.getConfig(BrokerType.central);
   const centralBrokerMasterSql = config["centreonBroker"]["output"].find(
     (output) => output.name === "central-broker-master-sql"

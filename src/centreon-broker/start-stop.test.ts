@@ -14,30 +14,24 @@ describe("broker testing", () => {
     Broker.resetConfig(BrokerType.rrd);
   });
 
-  afterAll(() => {
-    beforeEach(() => {
-      Broker.cleanAllInstances();
-      Engine.cleanAllInstances();
-    });
-  });
-
   /**
    * The two instances of broker are started. Then we check they are correctly started.
    * The two instances are stopped. Then we check they are correctly stopped.
    * And we check no coredump has been produced.
    */
-  it("start/stop centreon broker => no coredump", async () => {
+  it("BSS1: start/stop centreon broker => no coredump", async () => {
     const broker = new Broker();
 
     const isStarted = await broker.start();
-    let isStopped = false;
+    let isStopped: boolean = false;
     if (isStarted) {
       isStopped = await broker.stop();
-      expect(await broker.checkCoredump()).toBeFalsy();
     }
+    let cd = await broker.checkCoredump();
     Broker.cleanAllInstances();
     expect(isStarted).toBeTruthy();
     expect(isStopped).toBeTruthy();
+    expect(cd).toBeFalsy();
   }, 60000);
 
   it("start/stop centreon broker with reversed connection on TCP acceptor but only this instance => no deadlock", async () => {
@@ -67,26 +61,27 @@ describe("broker testing", () => {
     expect(await broker.checkCoredump()).toBeFalsy();
   }, 60000);
 
-  it("repeat 10 times start/stop broker with .3sec interval => no coredump", async () => {
+  it("BSS2: repeat 10 times start/stop broker with .3sec interval => no coredump", async () => {
     /* Preparing the two instances of broker */
-    const broker = new Broker();
+    const broker = new Broker(1);
     for (let i = 0; i < 10; ++i) {
       const isStarted = await broker.start();
       await sleep(300);
       const isStopped = await broker.stop();
+      const cd = await broker.checkCoredump();
 
       /* Little cleanup */
       Broker.cleanAllInstances();
 
       expect(isStarted).toBeTruthy();
       expect(isStopped).toBeTruthy();
-      expect(await broker.checkCoredump()).toBeFalsy();
+      expect(cd).toBeFalsy();
     }
   }, 240000);
 
-  it("repeat 10 times start/stop broker with 1sec interval => no coredump", async () => {
+  it("BSS3: repeat 10 times start/stop broker with 1sec interval => no coredump", async () => {
     /* Preparing the two instances of broker */
-    const broker = new Broker();
+    const broker = new Broker(1);
     for (let i = 0; i < 10; ++i) {
       const isStarted = await broker.start();
       await sleep(1000);

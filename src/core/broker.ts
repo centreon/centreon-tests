@@ -439,6 +439,11 @@ export class Broker {
     shell.exec("systemctl start mysqld");
   }
 
+  static stopMysql(): void {
+    if (this.isMySqlStopped(1)) return;
+    shell.exec("systemctl stop mysqld");
+  }
+
   static isMySqlStarted(waitTime: number = 20): boolean {
     let now = Date.now();
     const limit = now + waitTime * 1000;
