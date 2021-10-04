@@ -1,123 +1,171 @@
-import shell from 'shelljs';
-import { Broker, BrokerType } from '../core/broker';
-import { Engine } from '../core/engine';
-import { isBrokerAndEngineConnected } from '../core/brokerEngine';
+import shell from "shelljs";
+import { Broker, BrokerType } from "../core/broker";
+import { Engine } from "../core/engine";
+import { isBrokerAndEngineConnected } from "../core/brokerEngine";
 
 shell.config.silent = true;
 
-describe('engine reloads with new hosts and hostgroups configurations', () => {
+describe("engine reloads with new hosts and hostgroups configurations", () => {
+  beforeEach(async () => {
+    await Engine.cleanAllInstances();
+    await Broker.cleanAllInstances();
+    Broker.startMysql();
 
+    Broker.clearLogs(BrokerType.central);
+    Broker.clearRetention(BrokerType.central);
+    Broker.clearRetention(BrokerType.module);
+    Broker.resetConfig(BrokerType.central);
+
+    const config_broker = await Broker.getConfig(BrokerType.central);
+    config_broker["centreonBroker"]["log"]["loggers"]["sql"] = "trace";
+    await Broker.writeConfig(BrokerType.central, config_broker);
+
+    Engine.clearLogs();
+
+    if (Broker.isInstancesRunning() || Engine.isInstancesRunning()) {
+      console.log("program could not stop cbd or centengine");
+      process.exit(1);
+    }
+  });
+
+  afterAll(() => {
     beforeEach(async () => {
-        await Engine.cleanAllInstances();
-        await Broker.cleanAllInstances();
+      await Engine.cleanAllInstances();
+      await Broker.cleanAllInstances();
+    });
+  });
 
-        Broker.clearLogs(BrokerType.central);
-        Broker.clearRetention(BrokerType.central);
-        Broker.clearRetention(BrokerType.module);
-        Broker.resetConfig(BrokerType.central);
+  it("New host group", async () => {
+    const broker = new Broker(2);
+    const engine = new Engine(2);
+    await Engine.buildConfigs();
+    const started1 = await broker.start();
+    const started2 = await engine.start();
 
-        const config_broker = await Broker.getConfig(BrokerType.central);
-        config_broker['centreonBroker']['log']['loggers']['sql'] = 'trace';
-        await Broker.writeConfig(BrokerType.central, config_broker);
+    const checklog1 = await engine.checkLogFileContains(
+      0,
+      [
+        "Event broker module '/usr/lib64/nagios/cbmod.so' initialized successfully",
+      ],
+      120
+    );
 
-        Engine.clearLogs();
+    const checklog2 = await engine.checkLogFileContains(
+      1,
+      [
+        "Event broker module '/usr/lib64/nagios/cbmod.so' initialized successfully",
+      ],
+      120
+    );
 
-        if (Broker.isInstancesRunning() || Engine.isRunning()) {
-            console.log("program could not stop cbd or centengine")
-            process.exit(1)
-        }
-    })
+    const connected1 = await isBrokerAndEngineConnected();
 
-    afterAll(() => {
-        beforeEach(async () => {
-            await Engine.cleanAllInstances();
-            await Broker.cleanAllInstances();
-        })
-    })
+    const hostgroupAdded1 = await engine.addHostgroup(1, [
+      "host_1",
+      "host_2",
+      "host_3",
+    ]);
+    let p = [engine.reload(), broker.reload()];
+    await Promise.all(p);
 
-    it('New host group', async () => {
-        const broker = new Broker(2);
-        await expect(broker.start()).resolves.toBeTruthy();
+    const checkLog4 = await engine.checkLogFileContains(
+      0,
+      [
+        "Event broker module '/usr/lib64/nagios/cbmod.so' initialized successfully",
+      ],
+      120
+    );
 
-        const engine = new Engine();
-        expect(await Engine.buildConfigs()).toBeTruthy();
-        expect(await engine.start()).toBeTruthy();
-        console.log("engine started");
+    const connected2 = await isBrokerAndEngineConnected();
 
-        await engine.checkLogFileContains(0, ["Event broker module '/usr/lib64/nagios/cbmod.so' initialized successfully"], 120);
-        console.log("cbmod loaded");
+    const checkLog3 = await broker.checkCentralLogContains(
+      [
+        "enabling membership of host 3 to host group 1 on instance 1",
+        "enabling membership of host 2 to host group 1 on instance 1",
+        "enabling membership of host 1 to host group 1 on instance 1",
+      ],
+      60
+    );
 
-        await expect(isBrokerAndEngineConnected()).resolves.toBeTruthy()
-        console.log("Broker and Engine connected");
+    const stopped1: boolean = await engine.stop();
+    const stopped2: boolean = await broker.stop();
 
-        await expect(engine.addHostgroup(1, ['host_1', 'host_2', 'host_3'])).resolves.toBeTruthy();
-        console.log("New host group 1");
-        let p = [engine.reload(), broker.reload()];
-        await Promise.all(p);
-        console.log("Engine and broker reloaded");
+    Broker.cleanAllInstances();
+    Engine.cleanAllInstances();
 
-        await engine.checkLogFileContains(0, ["Event broker module '/usr/lib64/nagios/cbmod.so' initialized successfully"], 120);
-        console.log("cbmod module reloaded");
-        await expect(isBrokerAndEngineConnected()).resolves.toBeTruthy();
-        console.log("Broker and Engine connected");
+    expect(started1).toBeTruthy();
+    expect(started2).toBeTruthy();
+    expect(checklog1).toBeTruthy();
+    expect(checklog2).toBeTruthy();
+    expect(connected1).toBeTruthy();
+    expect(hostgroupAdded1).toBeTruthy();
+    expect(checkLog4).toBeTruthy();
+    expect(checkLog3).toBeTruthy();
+    expect(connected2).toBeTruthy();
+    expect(stopped1).toBeTruthy();
+    expect(stopped2).toBeTruthy();
+  }, 120000);
 
-        await expect(broker.checkCentralLogContains(
-            ['enabling membership of host 3 to host group 1 on instance 1',
-                'enabling membership of host 2 to host group 1 on instance 1',
-                'enabling membership of host 1 to host group 1 on instance 1'], 60)).resolves.toBeTruthy();
+  it("Many New host groups", async () => {
+    const broker = new Broker(2);
+    const engine = new Engine(2);
+    await Engine.buildConfigs();
+    const started1 = await broker.start();
+    const started2 = await engine.start();
 
-        await (engine.stop());
-        await (broker.stop());
-    }, 120000);
+    const checkLog1 = await engine.checkLogFileContains(
+      0,
+      [
+        "Event broker module '/usr/lib64/nagios/cbmod.so' initialized successfully",
+      ],
+      120
+    );
 
-    it('Many New host groups', async () => {
-        const broker = new Broker(2);
-        await expect(broker.start()).resolves.toBeTruthy();
+    const checkLog2 = await engine.checkLogFileContains(
+      1,
+      [
+        "Event broker module '/usr/lib64/nagios/cbmod.so' initialized successfully",
+      ],
+      120
+    );
 
-        const engine = new Engine();
-        expect(await Engine.buildConfigs()).toBeTruthy();
-        expect(await engine.start()).toBeTruthy();
-        console.log("engine started");
+    const connected1 = await isBrokerAndEngineConnected();
 
-        await engine.checkLogFileContains(0, ["Event broker module '/usr/lib64/nagios/cbmod.so' initialized successfully"], 120);
-        console.log("cbmod loaded");
+    let hostnames: string[] = ["host_1", "host_2"];
+    let logs: string[] = [];
 
-        await expect(isBrokerAndEngineConnected()).resolves.toBeTruthy()
-        console.log("Broker and Engine connected");
+    for (let i = 0; i < 2; i++) {
+      let host = await engine.addHost(i % 2);
+      hostnames.push(host.name);
+      let group = await engine.addHostgroup(i + 3, hostnames);
+      logs.push(
+        `SQL: enabling membership of host ${host.id} to host group ${group.id} on instance 1`
+      );
+      logs.push(
+        `SQL: processing host event (poller: 1, host: ${host.id}, name: ${host.name}`
+      );
+    }
 
-        await expect(engine.addHostgroup(0, 1, ['host_1', 'host_2', 'host_3'])).resolves.toBeTruthy();
-        console.log("New host group 1");
-        let p = [engine.reload(), broker.reload()];
-        await Promise.all(p);
-        console.log("Engine and broker reloaded");
+    let p = [engine.reload(), broker.reload()];
+    await Promise.all(p);
+    const connected3 = await isBrokerAndEngineConnected();
 
-        await engine.checkLogFileContains(0, ["Event broker module '/usr/lib64/nagios/cbmod.so' initialized successfully"], 120);
-        console.log("cbmod module reloaded");
-        await expect(isBrokerAndEngineConnected()).resolves.toBeTruthy();
-        console.log("Broker and Engine connected");
+    const checkLog5 = await broker.checkCentralLogContains(logs, 60);
 
-        let hostnames : string[] = ['host_1', 'host_2'];
-        let logs : string[] = [];
+    const stopped1 = await engine.stop();
+    const stopped2 = await broker.stop();
 
-        for (let i = 0; i < 50; i++) {
-            let host = await engine.addHost(0);
-            hostnames.push(host.name);
-            let group = await engine.addHostgroup(i + 2, hostnames);
-            logs.push(`SQL: enabling membership of host ${host.id} to host group ${group.id} on instance 1`);
-            logs.push(`SQL: processing host event (poller: 1, host: ${host.id}, name: ${host.name}`);
-        }
-        console.log("50 new hosts and 50 new hostgroups");
+    Broker.cleanAllInstances();
+    Engine.cleanAllInstances();
 
-        p = [engine.reload(), broker.reload()];
-        await Promise.all(p);
-        console.log("Engine and Broker reloaded");
-        await expect(isBrokerAndEngineConnected()).resolves.toBeTruthy();
-        console.log("Engine and Broker connected");
-
-        await expect(broker.checkCentralLogContains(logs, 60)).resolves.toBeTruthy();
-        console.log("Broker log contains all needed data");
-
-        await (engine.stop());
-        await (broker.stop());
-    }, 120000);
+    expect(started1).toBeTruthy();
+    expect(started2).toBeTruthy();
+    expect(checkLog1).toBeTruthy();
+    expect(checkLog2).toBeTruthy();
+    expect(connected1).toBeTruthy();
+    expect(connected3).toBeTruthy();
+    expect(checkLog5).toBeTruthy();
+    expect(stopped1).toBeTruthy();
+    expect(stopped2).toBeTruthy();
+  }, 120000);
 });

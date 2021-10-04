@@ -1,14 +1,19 @@
 import shell from "shelljs";
 import sleep from "await-sleep";
+import { Engine } from "./engine";
 
-export const isBrokerAndEngineConnected = async (): Promise<boolean> => {
-  for (let i = 0; i < 10; ++i) {
-    const cbdPort = 5669;
-
-    const ssResultCbd = shell.exec(`ss -plant | grep ${cbdPort}`);
-    if (ssResultCbd.code == 0 && ssResultCbd.stdout.includes(cbdPort + "")) {
-      return true;
-    }
+export const isBrokerAndEngineConnected = async (
+  engineId: number = 0,
+  port: number = 5669
+): Promise<boolean> => {
+  const limit = Date.now() + 20000;
+  while (Date.now() < limit) {
+    const ssResultCbd = shell.exec(`ss -plant | grep ${port}`);
+    let lines: string[] = ssResultCbd.stdout.split("\n");
+    lines = lines.filter(
+      (v) => v.includes(port + "") && v.includes("cbd") && v.includes("ESTAB")
+    );
+    if (lines.length == Engine.instanceCount) return true;
 
     await sleep(500);
   }

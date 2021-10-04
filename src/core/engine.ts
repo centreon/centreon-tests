@@ -24,6 +24,7 @@ import { Broker, BrokerType } from "./broker";
 
 export class Engine {
   hostgroup: number[] = [];
+  static hosts: string[][];
   static lastHostId: number = 0;
   static lastServiceId: number = 0;
   static lastHostgroupId: number = 0;
@@ -48,6 +49,8 @@ export class Engine {
     Engine.CENTREON_ENGINE_CONFIG_PATH = new Array(count).map(
       (x) => `/etc/centreon-engine/conf${x}/centengine.cfg`
     );
+    Engine.hosts = [];
+    for (let i = 0; i < Engine.instanceCount; i++) Engine.hosts.push([]);
   }
 
   /**
@@ -432,28 +435,34 @@ enable_flap_detection=0
       this.CENTREON_ENGINE_UID,
       this.CENTREON_ENGINE_GID
     );
-    for (let inst = 0; inst < Engine.instanceCount; inst++) {
-      mkdir(`/etc/centreon-engine/config${inst}`, () => {
-        for (let f of [
-          "centengine.cfg",
-          "commands.cfg",
-          "connectors.cfg",
-          "resource.cfg",
-          "hostgroups.cfg",
-          "timeperiods.cfg",
-          "hosts.cfg",
-          "services.cfg",
-        ]) {
-          copyFileSync(
-            path.join(
-              __dirname,
-              `../config/centreon-engine/config${inst}/${f}`
-            ),
-            `/etc/centreon-engine/config${inst}/${f}`
-          );
-        }
-      });
-    }
+    let p = new Promise((resolve, reject) => {
+      let count = Engine.instanceCount;
+      for (let inst = 0; inst < Engine.instanceCount; inst++) {
+        mkdir(`/etc/centreon-engine/config${inst}`, () => {
+          for (let f of [
+            "centengine.cfg",
+            "commands.cfg",
+            "connectors.cfg",
+            "resource.cfg",
+            "hostgroups.cfg",
+            "timeperiods.cfg",
+            "hosts.cfg",
+            "services.cfg",
+          ]) {
+            copyFileSync(
+              path.join(
+                __dirname,
+                `../config/centreon-engine/config${inst}/${f}`
+              ),
+              `/etc/centreon-engine/config${inst}/${f}`
+            );
+          }
+          count--;
+          if (count == 0) resolve(true);
+        });
+      }
+    });
+    p.finally();
   }
 
   static async buildConfigs(
@@ -515,6 +524,7 @@ enable_flap_detection=0
             for (let i = 1; i <= hosts; ++i) {
               let h = Engine.createHost();
               write(fd, Buffer.from(h.config), (err) => {
+                Engine.hosts[inst].push(`host_${h.id}`);
                 --count; // one host written
                 if (count <= 0) {
                   resolve(true);
@@ -687,6 +697,7 @@ define connector {
               scriptDir + "/" + f,
               Engine.CENTREON_ENGINE_HOME + "/" + f
             );
+          Engine.installConfigs();
           return true;
         })
         .catch((err) => {
@@ -698,36 +709,53 @@ define connector {
   }
 
   async addHostgroup(
-    inst: number,
     index: number,
     members: string[]
   ): Promise<{ id: number; members: string[] }> {
-    const srcConfig =
-      process.cwd() +
-      this.CENTREON_ENGINE_CONFIG_DIR +
-      `/config${inst}/hostgroups.cfg`;
+    let mbs: string[][];
+    mbs = [];
+    for (let i = 0; i < Engine.instanceCount; i++) mbs.push([]);
+    for (let m of members) {
+      for (let i = 0; i < Engine.instanceCount; i++) {
+        if (Engine.hosts[i].includes(m)) {
+          mbs[i].push(m);
+          break;
+        }
+      }
+    }
+    //    const srcConfig =
+    //      process.cwd() +
+    //      this.CENTREON_ENGINE_CONFIG_DIR +
+    //      `/config${inst}/hostgroups.cfg`;
     let p = new Promise((resolve, reject) => {
-      let hg = Engine.createHostgroup(members);
-      if (this.hostgroup.indexOf(index) < 0) {
-        open(srcConfig, "a+", (err, fd) => {
-          if (err) {
-            reject(err);
-          } else {
-            write(fd, Buffer.from(hg.config), (err) => {
-              if (err) {
-                reject(err);
-              }
-              this.hostgroup.push(index);
-              copyFile(
-                srcConfig,
-                `/etc/centreon-engine/config${inst}/hostgroups.cfg`,
-                () => {
-                  resolve(true);
+      for (let i = 0; i < Engine.instanceCount; i++) {
+        if (mbs[i].length == 0) continue;
+        let hg = Engine.createHostgroup(mbs[i]);
+        if (this.hostgroup.indexOf(index) < 0) {
+          const srcConfig =
+            process.cwd() +
+            this.CENTREON_ENGINE_CONFIG_DIR +
+            `/config${i}/hostgroups.cfg`;
+          open(srcConfig, "a+", (err, fd) => {
+            if (err) {
+              reject(err);
+            } else {
+              write(fd, Buffer.from(hg.config), (err) => {
+                if (err) {
+                  reject(err);
                 }
-              );
-            });
-          }
-        });
+                this.hostgroup.push(index);
+                copyFile(
+                  srcConfig,
+                  `/etc/centreon-engine/config${i}/hostgroups.cfg`,
+                  () => {
+                    resolve(true);
+                  }
+                );
+              });
+            }
+          });
+        }
       }
     });
 
@@ -786,14 +814,12 @@ define connector {
               }
               Promise.all(p);
               copyFile(
-                process.cwd() + this.CENTREON_ENGINE_CONFIG_DIR + "/hosts.cfg",
-                "/etc/centreon-engine/hosts.cfg",
+                srcConfig + "/hosts.cfg",
+                `/etc/centreon-engine/config${inst}/hosts.cfg`,
                 () => {
                   copyFile(
-                    process.cwd() +
-                      this.CENTREON_ENGINE_CONFIG_DIR +
-                      "/services.cfg",
-                    "/etc/centreon-engine/services.cfg",
+                    srcConfig + "/services.cfg",
+                    `/etc/centreon-engine/config${inst}/services.cfg`,
                     () => {
                       resolve(h.id);
                     }
@@ -808,7 +834,8 @@ define connector {
 
     let retval = p
       .then((index: number) => {
-        return { name: "host_" + index, id: index };
+        Engine.hosts[inst].push(`host_${index}`);
+        return { name: `host_${index}`, id: index };
       })
       .catch((err) => {
         throw err;

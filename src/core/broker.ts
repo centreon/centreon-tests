@@ -434,8 +434,8 @@ export class Broker {
       rmSync(Broker.CENTREON_BROKER_MODULE_LOGS_PATH);
   }
 
-  static startMysql() {
-    if (this.isMySqlStarted(1)) return true;
+  static startMysql(): void {
+    if (this.isMySqlStarted(1)) return;
     shell.exec("systemctl start mysqld");
   }
 
