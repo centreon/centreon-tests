@@ -89,7 +89,7 @@ export class Broker {
 
       if (this.instanceCount == 2) this.rrdProcess.kill(SIGTERM);
 
-      return this.isStopped(40);
+      return this.isStopped(60);
     }
     return true;
   }

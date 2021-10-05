@@ -688,7 +688,6 @@ define connector {
 
       retval = p
         .then((ok) => {
-          Broker.resetConfig(BrokerType.module);
           if (!existsSync(Engine.CENTREON_ENGINE_HOME))
             mkdirSync(Engine.CENTREON_ENGINE_HOME);
 

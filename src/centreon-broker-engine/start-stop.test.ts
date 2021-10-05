@@ -14,6 +14,8 @@ describe("engine and broker testing in same time", () => {
     Broker.clearLogs(BrokerType.central);
     Engine.clearLogs();
     Broker.resetConfig(BrokerType.central);
+    Broker.resetConfig(BrokerType.module);
+    Broker.resetConfig(BrokerType.rrd);
 
     if (Broker.isInstancesRunning() || Engine.isInstancesRunning()) {
       console.log("program could not stop cbd or centengine");
@@ -131,9 +133,9 @@ describe("engine and broker testing in same time", () => {
     expect(cd3).toBeFalsy();
   }, 60000);
 
-  it("BEOPR1: start/stop centreon broker/engine - broker first", async () => {
+  it.only("BEOPR1: start/stop centreon broker/engine - broker first", async () => {
     const central = await Broker.getConfig(BrokerType.central);
-    const module = await Broker.getConfig(BrokerType.central);
+    const module = await Broker.getConfig(BrokerType.module);
     const input = central["centreonBroker"]["input"].find(
       (output) => output.name === "central-broker-master-input"
     );
@@ -143,7 +145,7 @@ describe("engine and broker testing in same time", () => {
 
     input["one_peer_retention_mode"] = "yes";
     input["host"] = "localhost";
-    delete output["host"];
+    output["host"] = undefined;
     output["one_peer_retention_mode"] = "yes";
     await Broker.writeConfig(BrokerType.central, central);
     await Broker.writeConfig(BrokerType.module, module);
@@ -187,7 +189,7 @@ describe("engine and broker testing in same time", () => {
     expect(stopped3).toBeTruthy();
     expect(cd3).toBeFalsy();
     expect(cd4).toBeFalsy();
-  }, 60000);
+  }, 120000);
 
   it("BEOPR2: start/stop centreon broker/engine - broker first", async () => {
     const central = await Broker.getConfig(BrokerType.central);
