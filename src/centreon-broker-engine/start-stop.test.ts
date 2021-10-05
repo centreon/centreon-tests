@@ -21,10 +21,10 @@ describe("engine and broker testing in same time", () => {
     }
   });
 
-  it("start/stop centreon broker/engine - broker first", async () => {
+  it("BESS1: start/stop centreon broker/engine - start: broker first, stop: broker first", async () => {
     Broker.startMysql();
 
-    const broker = new Broker(1);
+    const broker = new Broker();
     const engine = new Engine();
     Engine.buildConfigs();
 
@@ -35,6 +35,9 @@ describe("engine and broker testing in same time", () => {
     const stopped1 = await broker.stop();
     const stopped2 = await engine.stop();
 
+    const cd1 = await broker.checkCoredump();
+    const cd2 = await engine.checkCoredump();
+
     Broker.cleanAllInstances();
     Engine.cleanAllInstances();
 
@@ -43,33 +46,205 @@ describe("engine and broker testing in same time", () => {
     expect(connected).toBeTruthy();
     expect(stopped1).toBeTruthy();
     expect(stopped2).toBeTruthy();
-
-    await expect(broker.checkCoredump()).resolves.toBeFalsy();
-    await expect(engine.checkCoredump()).resolves.toBeFalsy();
+    expect(cd1).toBeFalsy();
+    expect(cd2).toBeFalsy();
   }, 60000);
 
-  it("start/stop centreon broker/engine - engine first", async () => {
+  it("BESS2: start/stop centreon broker/engine - start: broker first, stop: engine first", async () => {
+    Broker.startMysql();
+
+    const broker = new Broker();
+    const engine = new Engine();
+    Engine.buildConfigs();
+
+    const started1 = await broker.start();
+    const started2 = await engine.start();
+    const connected1 = await isBrokerAndEngineConnected();
+
+    const stopped2 = await engine.stop();
+    const cd2 = await engine.checkCoredump();
+
+    const running1 = await broker.isRunning(2, 5);
+
+    const started3 = await engine.start();
+    const connected2 = await isBrokerAndEngineConnected();
+
+    const stopped1 = await broker.stop();
+    const stopped3 = await engine.stop();
+
+    const cd1 = await broker.checkCoredump();
+    const cd3 = await engine.checkCoredump();
+
+    Broker.cleanAllInstances();
+    Engine.cleanAllInstances();
+
+    expect(started1).toBeTruthy();
+    expect(started2).toBeTruthy();
+    expect(connected1).toBeTruthy();
+    expect(stopped2).toBeTruthy();
+    expect(cd2).toBeFalsy();
+    expect(running1).toBeTruthy();
+    expect(started3).toBeTruthy();
+    expect(connected2).toBeTruthy();
+    expect(stopped1).toBeTruthy();
+    expect(stopped3).toBeTruthy();
+    expect(cd1).toBeFalsy();
+    expect(cd3).toBeFalsy();
+  }, 60000);
+
+  it("BESS3: start/stop centreon broker/engine - engine first", async () => {
     const broker = new Broker(1);
     const engine = new Engine();
 
-    const started2 = await engine.start();
-    const started1 = await broker.start();
-    const connected = await isBrokerAndEngineConnected();
+    const started1 = await engine.start();
+    const started2 = await broker.start();
+    const connected1 = await isBrokerAndEngineConnected();
 
-    const stopped1 = await broker.stop();
-    const stopped2 = await engine.stop();
+    const stopped2 = await broker.stop();
+    const cd2 = await broker.checkCoredump();
+
+    const running1 = await engine.isRunning(2, 5);
+
+    const started3 = await broker.start();
+    const connected2 = await isBrokerAndEngineConnected();
+
+    const stopped1 = await engine.stop();
+    const stopped3 = await broker.stop();
+
+    const cd1 = await engine.checkCoredump();
+    const cd3 = await broker.checkCoredump();
 
     Broker.cleanAllInstances();
     Engine.cleanAllInstances();
 
     expect(started1).toBeTruthy();
     expect(started2).toBeTruthy();
-    expect(connected).toBeTruthy();
-    expect(stopped1).toBeTruthy();
+    expect(connected1).toBeTruthy();
     expect(stopped2).toBeTruthy();
+    expect(cd2).toBeFalsy();
+    expect(running1).toBeTruthy();
+    expect(started3).toBeTruthy();
+    expect(connected2).toBeTruthy();
+    expect(stopped1).toBeTruthy();
+    expect(stopped3).toBeTruthy();
+    expect(cd1).toBeFalsy();
+    expect(cd3).toBeFalsy();
+  }, 60000);
 
-    await expect(broker.checkCoredump()).resolves.toBeFalsy();
-    await expect(engine.checkCoredump()).resolves.toBeFalsy();
+  it("BEOPR1: start/stop centreon broker/engine - broker first", async () => {
+    const central = await Broker.getConfig(BrokerType.central);
+    const module = await Broker.getConfig(BrokerType.central);
+    const input = central["centreonBroker"]["input"].find(
+      (output) => output.name === "central-broker-master-input"
+    );
+    const output = module["centreonBroker"]["output"].find(
+      (output) => output.name === "central-module-master-output"
+    );
+
+    input["one_peer_retention_mode"] = "yes";
+    input["host"] = "localhost";
+    delete output["host"];
+    output["one_peer_retention_mode"] = "yes";
+    await Broker.writeConfig(BrokerType.central, central);
+    await Broker.writeConfig(BrokerType.module, module);
+
+    const broker = new Broker();
+    const engine = new Engine();
+    Engine.buildConfigs();
+
+    const started1 = await broker.start();
+    const started2 = await engine.start();
+    const connected1 = await isBrokerAndEngineConnected();
+
+    const stopped1 = await engine.stop();
+    const cd1 = await broker.checkCoredump();
+    const cd2 = await engine.checkCoredump();
+
+    const running1 = await broker.isRunning(2, 5);
+
+    const started3 = await engine.start();
+    const connected2 = await isBrokerAndEngineConnected();
+
+    const stopped2 = await engine.stop();
+    const stopped3 = await broker.stop();
+
+    const cd3 = await engine.checkCoredump();
+    const cd4 = await broker.checkCoredump();
+
+    Broker.cleanAllInstances();
+    Engine.cleanAllInstances();
+
+    expect(started1).toBeTruthy();
+    expect(started2).toBeTruthy();
+    expect(connected1).toBeTruthy();
+    expect(stopped1).toBeTruthy();
+    expect(cd1).toBeFalsy();
+    expect(cd2).toBeFalsy();
+    expect(running1).toBeTruthy();
+    expect(started3).toBeTruthy();
+    expect(connected2).toBeTruthy();
+    expect(stopped2).toBeTruthy();
+    expect(stopped3).toBeTruthy();
+    expect(cd3).toBeFalsy();
+    expect(cd4).toBeFalsy();
+  }, 60000);
+
+  it("BEOPR2: start/stop centreon broker/engine - broker first", async () => {
+    const central = await Broker.getConfig(BrokerType.central);
+    const module = await Broker.getConfig(BrokerType.central);
+    const input = central["centreonBroker"]["input"].find(
+      (output) => output.name === "central-broker-master-input"
+    );
+    const output = module["centreonBroker"]["output"].find(
+      (output) => output.name === "central-module-master-output"
+    );
+
+    input["one_peer_retention_mode"] = "yes";
+    input["host"] = "localhost";
+    output.remove("host");
+    output["one_peer_retention_mode"] = "yes";
+    await Broker.writeConfig(BrokerType.central, central);
+    await Broker.writeConfig(BrokerType.module, module);
+
+    const broker = new Broker();
+    const engine = new Engine();
+    Engine.buildConfigs();
+
+    const started1 = await engine.start();
+    const started2 = await broker.start();
+    const connected1 = await isBrokerAndEngineConnected();
+
+    const stopped1 = await broker.stop();
+    const cd1 = await broker.checkCoredump();
+    const cd2 = await engine.checkCoredump();
+
+    const running1 = await engine.isRunning(2, 5);
+
+    const started3 = await broker.start();
+    const connected2 = await isBrokerAndEngineConnected();
+
+    const stopped2 = await broker.stop();
+    const stopped3 = await engine.stop();
+
+    const cd3 = await broker.checkCoredump();
+    const cd4 = await engine.checkCoredump();
+
+    Broker.cleanAllInstances();
+    Engine.cleanAllInstances();
+
+    expect(started1).toBeTruthy();
+    expect(started2).toBeTruthy();
+    expect(connected1).toBeTruthy();
+    expect(stopped1).toBeTruthy();
+    expect(cd1).toBeFalsy();
+    expect(cd2).toBeFalsy();
+    expect(running1).toBeTruthy();
+    expect(started3).toBeTruthy();
+    expect(connected2).toBeTruthy();
+    expect(stopped2).toBeTruthy();
+    expect(stopped3).toBeTruthy();
+    expect(cd3).toBeFalsy();
+    expect(cd4).toBeFalsy();
   }, 60000);
 
   it("BEDB1: should handle database service stop and start", async () => {
@@ -92,7 +267,7 @@ describe("engine and broker testing in same time", () => {
         await sleep(1);
         cd1 = await broker.checkCoredump();
         Broker.startMysql();
-        const checkLog1 = await broker.checkCentralLogContains(
+        checkLog1 = await broker.checkCentralLogContains(
           ["[sql] [debug] conflict_manager: storage stream initialization"],
           30
         );
@@ -119,68 +294,69 @@ describe("engine and broker testing in same time", () => {
   }, 60000);
 });
 
-it("broker without database", async () => {
-  const duration = 20000;
-  const broker = new Broker();
-  const engine = new Engine();
-
-  Engine.buildConfigs();
-
-  shell.exec("systemctl stop mysqld");
-
-  const brokerStarted = await broker.start();
-  const engineStarted = await engine.start();
-  if (brokerStarted && engineStarted) {
-    var connected = await isBrokerAndEngineConnected();
-
-    var checkLog1 = await broker.checkCentralLogContains([
-      "[core] [error] failover: global error: storage: Unable to initialize the storage connection to the database",
-    ]);
-
-    shell.exec("systemctl stop mysqld");
-
-    let d = Date.now() + duration;
-
-    while (Date.now() < d) {
-      let rawdata: string;
-      let jsonstats;
-      try {
-        rawdata = readFileSync(
-          "/var/lib/centreon-broker/central-broker-master-stats.json"
-        ).toString();
-        jsonstats = JSON.parse(rawdata);
-      } catch (e) {
-        console.log(e);
-      }
-
-      if (!(Object.keys(rawdata).length == 0)) {
-        if (
-          jsonstats["endpoint central-broker-master-sql"].hasOwnProperty(
-            "conflict_manager"
-          )
-        ) {
-          console.log(
-            jsonstats["endpoint central-broker-master-sql"]["conflict_manager"]
-          );
-          break;
-        }
-      }
-    }
-
-    var brokerStopped = broker.stop();
-    var engineStopped = engine.stop();
-  }
-
-  Broker.cleanAllInstances();
-  Engine.cleanAllInstances();
-
-  expect(brokerStarted).toBeTruthy();
-  expect(engineStarted).toBeTruthy();
-  expect(connected).toBeTruthy();
-  expect(checkLog1).toBeTruthy();
-  expect(brokerStopped).toBeTruthy();
-  expect(engineStopped).toBeTruthy();
-
-  await expect(broker.checkCoredump()).resolves.toBeFalsy();
-  await expect(engine.checkCoredump()).resolves.toBeFalsy();
-}, 350000);
+//it("broker without database", async () => {
+//  const duration = 20000;
+//  const broker = new Broker();
+//  const engine = new Engine();
+//
+//  Engine.buildConfigs();
+//
+//  shell.exec("systemctl stop mysqld");
+//
+//  const brokerStarted = await broker.start();
+//  const engineStarted = await engine.start();
+//  if (brokerStarted && engineStarted) {
+//    var connected = await isBrokerAndEngineConnected();
+//
+//    var checkLog1 = await broker.checkCentralLogContains([
+//      "[core] [error] failover: global error: storage: Unable to initialize the storage connection to the database",
+//    ]);
+//
+//    shell.exec("systemctl stop mysqld");
+//
+//    let d = Date.now() + duration;
+//
+//    while (Date.now() < d) {
+//      let rawdata: string;
+//      let jsonstats;
+//      try {
+//        rawdata = readFileSync(
+//          "/var/lib/centreon-broker/central-broker-master-stats.json"
+//        ).toString();
+//        jsonstats = JSON.parse(rawdata);
+//      } catch (e) {
+//        console.log(e);
+//      }
+//
+//      if (!(Object.keys(rawdata).length == 0)) {
+//        if (
+//          jsonstats["endpoint central-broker-master-sql"].hasOwnProperty(
+//            "conflict_manager"
+//          )
+//        ) {
+//          console.log(
+//            jsonstats["endpoint central-broker-master-sql"]["conflict_manager"]
+//          );
+//          break;
+//        }
+//      }
+//    }
+//
+//    var brokerStopped = broker.stop();
+//    var engineStopped = engine.stop();
+//  }
+//
+//  Broker.cleanAllInstances();
+//  Engine.cleanAllInstances();
+//
+//  expect(brokerStarted).toBeTruthy();
+//  expect(engineStarted).toBeTruthy();
+//  expect(connected).toBeTruthy();
+//  expect(checkLog1).toBeTruthy();
+//  expect(brokerStopped).toBeTruthy();
+//  expect(engineStopped).toBeTruthy();
+//
+//  await expect(broker.checkCoredump()).resolves.toBeFalsy();
+//  await expect(engine.checkCoredump()).resolves.toBeFalsy();
+//}, 350000);
+//

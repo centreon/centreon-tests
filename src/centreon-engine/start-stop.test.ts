@@ -12,7 +12,7 @@ describe("start and stop engine", () => {
     Engine.cleanAllInstances();
   });
 
-  it("start/stop centengine", async () => {
+  it("ESS1: start/stop centengine", async () => {
     const engine = new Engine();
     Engine.buildConfigs(50, 40);
     const started = await engine.start();
@@ -25,8 +25,8 @@ describe("start and stop engine", () => {
     expect(await engine.checkCoredump()).toBeFalsy();
   }, 30000);
 
-  it("start and stop many instances engine", async () => {
-    for (let i = 0; i < 10; ++i) {
+  it("ESS2: start and stop many instances engine", async () => {
+    for (let i = 0; i < 5; ++i) {
       console.log(`Step ${i + 1}/10`);
       const engine = new Engine();
       const started = await engine.start();
