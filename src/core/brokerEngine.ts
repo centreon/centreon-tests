@@ -3,7 +3,6 @@ import sleep from "await-sleep";
 import { Engine } from "./engine";
 
 export const isBrokerAndEngineConnected = async (
-  engineId: number = 0,
   port: number = 5669
 ): Promise<boolean> => {
   const limit = Date.now() + 20000;
@@ -15,8 +14,7 @@ export const isBrokerAndEngineConnected = async (
     );
     if (lines.length == Engine.instanceCount) return true;
 
-    await sleep(500);
+    await sleep(200);
   }
-
   return false;
 };

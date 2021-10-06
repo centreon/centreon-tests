@@ -351,6 +351,52 @@ it("BEDB2: start broker/engine and then start MySQL", async () => {
   expect(statsOK).toBeTruthy();
 }, 80000);
 
+it("BDBM1: start broker/engine and then start MySQL", async () => {
+  Broker.startMysql();
+  for (let count of [4, 6]) {
+    const config = await Broker.getConfig(BrokerType.central);
+    const centralBrokerMasterSql = config["centreonBroker"]["output"].find(
+      (output) => output.name === "central-broker-master-sql"
+    );
+    centralBrokerMasterSql["connections_count"] = `${count}`;
+
+    const centralBrokerMasterStorage = config["centreonBroker"]["output"].find(
+      (output) => output.name === "central-broker-master-perfdata"
+    );
+    centralBrokerMasterStorage["connections_count"] = `${count}`;
+    await Broker.writeConfig(BrokerType.central, config);
+
+    const broker = new Broker();
+
+    const started1 = await broker.start();
+
+    let limit = Date.now() + 30000;
+    let conCount = 0;
+    while (Date.now() < limit) {
+      let b = readFileSync(
+        "/var/lib/centreon-broker/central-broker-master-stats.json"
+      );
+      let stats = await JSON.parse(b.toString());
+      let mm: JSON = stats["mysql manager"];
+      for (let key in mm) {
+        if (key.includes("waiting tasks")) conCount++;
+      }
+      if (conCount > 0) break;
+      await sleep(200);
+    }
+
+    const stopped1 = await broker.stop();
+    const cd = await broker.checkCoredump();
+
+    /* Cleanup */
+    Broker.cleanAllInstances();
+
+    expect(started1).toBeTruthy();
+    expect(stopped1).toBeTruthy();
+    expect(cd).toBeFalsy();
+    expect(conCount).toEqual(count);
+  }
+}, 80000);
 //it("should log error when database name is not correct", async () => {
 //  const config = await Broker.getConfig(BrokerType.central);
 //  const centralBrokerMasterSql = config["centreonBroker"]["output"].find(

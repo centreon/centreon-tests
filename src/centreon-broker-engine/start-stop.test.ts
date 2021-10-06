@@ -8,6 +8,7 @@ shell.config.silent = true;
 
 describe("engine and broker testing in same time", () => {
   beforeEach(async () => {
+    Broker.startMysql();
     await Engine.cleanAllInstances();
     await Broker.cleanAllInstances();
 
@@ -24,8 +25,7 @@ describe("engine and broker testing in same time", () => {
   });
 
   it("BESS1: start/stop centreon broker/engine - start: broker first, stop: broker first", async () => {
-    Broker.startMysql();
-
+    console.log("BESS1");
     const broker = new Broker();
     const engine = new Engine();
     Engine.buildConfigs();
@@ -53,8 +53,7 @@ describe("engine and broker testing in same time", () => {
   }, 60000);
 
   it("BESS2: start/stop centreon broker/engine - start: broker first, stop: engine first", async () => {
-    Broker.startMysql();
-
+    console.log("BESS2");
     const broker = new Broker();
     const engine = new Engine();
     Engine.buildConfigs();
@@ -95,6 +94,7 @@ describe("engine and broker testing in same time", () => {
   }, 60000);
 
   it("BESS3: start/stop centreon broker/engine - engine first", async () => {
+    console.log("BESS3");
     const broker = new Broker(1);
     const engine = new Engine();
 
@@ -131,9 +131,10 @@ describe("engine and broker testing in same time", () => {
     expect(stopped3).toBeTruthy();
     expect(cd1).toBeFalsy();
     expect(cd3).toBeFalsy();
-  }, 60000);
+  }, 100000);
 
-  it.only("BEOPR1: start/stop centreon broker/engine - broker first", async () => {
+  it("BEOPR1: start/stop centreon broker/engine - broker first", async () => {
+    console.log("BEOPR1");
     const central = await Broker.getConfig(BrokerType.central);
     const module = await Broker.getConfig(BrokerType.module);
     const input = central["centreonBroker"]["input"].find(
@@ -145,7 +146,7 @@ describe("engine and broker testing in same time", () => {
 
     input["one_peer_retention_mode"] = "yes";
     input["host"] = "localhost";
-    output["host"] = undefined;
+    delete output["host"];
     output["one_peer_retention_mode"] = "yes";
     await Broker.writeConfig(BrokerType.central, central);
     await Broker.writeConfig(BrokerType.module, module);
@@ -192,8 +193,9 @@ describe("engine and broker testing in same time", () => {
   }, 120000);
 
   it("BEOPR2: start/stop centreon broker/engine - broker first", async () => {
+    console.log("BEOPR2");
     const central = await Broker.getConfig(BrokerType.central);
-    const module = await Broker.getConfig(BrokerType.central);
+    const module = await Broker.getConfig(BrokerType.module);
     const input = central["centreonBroker"]["input"].find(
       (output) => output.name === "central-broker-master-input"
     );
@@ -203,7 +205,7 @@ describe("engine and broker testing in same time", () => {
 
     input["one_peer_retention_mode"] = "yes";
     input["host"] = "localhost";
-    output.remove("host");
+    delete output["host"];
     output["one_peer_retention_mode"] = "yes";
     await Broker.writeConfig(BrokerType.central, central);
     await Broker.writeConfig(BrokerType.module, module);
@@ -247,14 +249,12 @@ describe("engine and broker testing in same time", () => {
     expect(stopped3).toBeTruthy();
     expect(cd3).toBeFalsy();
     expect(cd4).toBeFalsy();
-  }, 60000);
+  }, 100000);
 
   it("BEDB1: should handle database service stop and start", async () => {
     const broker = new Broker(2);
     const engine = new Engine();
     Engine.buildConfigs();
-
-    Broker.startMysql();
 
     const started1 = await broker.start();
     const started2 = await engine.start();
@@ -265,6 +265,7 @@ describe("engine and broker testing in same time", () => {
     let checkLog1: boolean = true;
     if (started1 && started2) {
       for (let i = 0; i < 5 && !cd1 && checkLog1; i++) {
+        console.log(`BEDB1: ${i + 1}/5`);
         Broker.stopMysql();
         await sleep(1);
         cd1 = await broker.checkCoredump();
@@ -293,72 +294,50 @@ describe("engine and broker testing in same time", () => {
     expect(cd3).toBeFalsy();
     expect(stopped1).toBeTruthy();
     expect(stopped2).toBeTruthy();
-  }, 60000);
-});
+  }, 100000);
 
-//it("broker without database", async () => {
-//  const duration = 20000;
-//  const broker = new Broker();
-//  const engine = new Engine();
-//
-//  Engine.buildConfigs();
-//
-//  shell.exec("systemctl stop mysqld");
-//
-//  const brokerStarted = await broker.start();
-//  const engineStarted = await engine.start();
-//  if (brokerStarted && engineStarted) {
-//    var connected = await isBrokerAndEngineConnected();
-//
-//    var checkLog1 = await broker.checkCentralLogContains([
-//      "[core] [error] failover: global error: storage: Unable to initialize the storage connection to the database",
-//    ]);
-//
-//    shell.exec("systemctl stop mysqld");
-//
-//    let d = Date.now() + duration;
-//
-//    while (Date.now() < d) {
-//      let rawdata: string;
-//      let jsonstats;
-//      try {
-//        rawdata = readFileSync(
-//          "/var/lib/centreon-broker/central-broker-master-stats.json"
-//        ).toString();
-//        jsonstats = JSON.parse(rawdata);
-//      } catch (e) {
-//        console.log(e);
-//      }
-//
-//      if (!(Object.keys(rawdata).length == 0)) {
-//        if (
-//          jsonstats["endpoint central-broker-master-sql"].hasOwnProperty(
-//            "conflict_manager"
-//          )
-//        ) {
-//          console.log(
-//            jsonstats["endpoint central-broker-master-sql"]["conflict_manager"]
-//          );
-//          break;
-//        }
-//      }
-//    }
-//
-//    var brokerStopped = broker.stop();
-//    var engineStopped = engine.stop();
-//  }
-//
-//  Broker.cleanAllInstances();
-//  Engine.cleanAllInstances();
-//
-//  expect(brokerStarted).toBeTruthy();
-//  expect(engineStarted).toBeTruthy();
-//  expect(connected).toBeTruthy();
-//  expect(checkLog1).toBeTruthy();
-//  expect(brokerStopped).toBeTruthy();
-//  expect(engineStopped).toBeTruthy();
-//
-//  await expect(broker.checkCoredump()).resolves.toBeFalsy();
-//  await expect(engine.checkCoredump()).resolves.toBeFalsy();
-//}, 350000);
-//
+  it("BEDB3: should handle database service stop and start", async () => {
+    const broker = new Broker(2);
+    const engine = new Engine();
+    Engine.buildConfigs();
+
+    const started1 = await broker.start();
+    const started2 = await engine.start();
+
+    const connected = await isBrokerAndEngineConnected();
+
+    let cd1: boolean = false;
+    let checkLog1: boolean = true;
+    if (started1 && started2) {
+      for (let i = 0; i < 5 && !cd1 && checkLog1; i++) {
+        console.log(`BEDB3: ${i + 1}/5`);
+        Broker.stopMysql();
+        await sleep(10);
+        cd1 = await broker.checkCoredump();
+        Broker.startMysql();
+        checkLog1 = await broker.checkCentralLogContains([
+          "[sql] [debug] conflict_manager: storage stream initialization",
+        ]);
+        await sleep(10);
+      }
+    }
+
+    const stopped1 = await broker.stop();
+    const stopped2 = await engine.stop();
+    const cd2: boolean = await broker.checkCoredump();
+    const cd3: boolean = await engine.checkCoredump();
+
+    Broker.cleanAllInstances();
+    Engine.cleanAllInstances();
+
+    expect(started1).toBeTruthy();
+    expect(started2).toBeTruthy();
+    expect(connected).toBeTruthy();
+    expect(cd1).toBeFalsy();
+    expect(checkLog1).toBeTruthy();
+    expect(cd2).toBeFalsy();
+    expect(cd3).toBeFalsy();
+    expect(stopped1).toBeTruthy();
+    expect(stopped2).toBeTruthy();
+  }, 200000);
+});

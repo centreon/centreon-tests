@@ -34,6 +34,26 @@ describe("broker testing", () => {
     expect(cd).toBeFalsy();
   }, 60000);
 
+  /**
+   * One instance of broker is started. Then we check it is correctly started.
+   * It is then stopped. And we check it is correctly stopped.
+   * And we check no coredump has been produced.
+   */
+  it("BSS3: start/stop centreon broker => no coredump", async () => {
+    const broker = new Broker(1);
+
+    const isStarted = await broker.start();
+    let isStopped: boolean = false;
+    if (isStarted) {
+      isStopped = await broker.stop();
+    }
+    let cd: boolean = await broker.checkCoredump();
+    Broker.cleanAllInstances();
+    expect(isStarted).toBeTruthy();
+    expect(isStopped).toBeTruthy();
+    expect(cd).toBeFalsy();
+  }, 60000);
+
   it("start/stop centreon broker with reversed connection on TCP acceptor but only this instance => no deadlock", async () => {
     /* Let's get the configuration, we remove the host to connect since we wan't the other peer
      * to establish the connection. We also set the one peer retention mode (just for the configuration

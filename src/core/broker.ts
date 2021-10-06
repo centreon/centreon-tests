@@ -125,6 +125,7 @@ export class Broker {
         );
 
       if (centralProcess && (this.instanceCount == 1 || rrdProcess)) break;
+      await sleep(200);
       now = Date.now();
     }
     if (!centralProcess || (this.instanceCount == 2 && !rrdProcess))
