@@ -38,12 +38,16 @@ export class Engine {
   CENTREON_ENGINE_CONFIG_DIR = "/src/config/centreon-engine";
   static CENTREON_ENGINE_LOGS_PATH = "/var/log/centreon-engine/centengine.log";
   static lastMatchingLog: number[];
+  static lastMatchingDebug: number[];
   static instanceCount: number;
   processes: ChildProcess[];
 
   constructor(count: number = 1) {
     Engine.instanceCount = count;
     Engine.lastMatchingLog = new Array(count).map((x) =>
+      Math.floor(Date.now() / 1000)
+    );
+    Engine.lastMatchingDebug = new Array(count).map((x) =>
       Math.floor(Date.now() / 1000)
     );
     Engine.CENTREON_ENGINE_CONFIG_PATH = new Array(count).map(
@@ -84,6 +88,9 @@ export class Engine {
           Engine.CENTREON_ENGINE_GID
         );
         Engine.lastMatchingLog = new Array(Engine.instanceCount).fill(
+          Math.floor(Date.now() / 1000)
+        );
+        Engine.lastMatchingDebug = new Array(Engine.instanceCount).fill(
           Math.floor(Date.now() / 1000)
         );
         this.processes.push(
@@ -253,7 +260,7 @@ export class Engine {
     }
   }
 
-  static createCentengine(id: number): string {
+  static createCentengine(id: number, option: { debugLevel: number }): string {
     let retval = `#cfg_file=/etc/centreon-engine/config${id}/hostTemplates.cfg
 cfg_file=/etc/centreon-engine/config${id}/hosts.cfg
 #cfg_file=/etc/centreon-engine/config${id}/serviceTemplates.cfg
@@ -307,7 +314,7 @@ admin_pager=admin
 event_broker_options=-1
 cached_host_check_horizon=60
 debug_file=/var/log/centreon-engine/config${id}/centengine.debug
-debug_level=400
+debug_level=${option.debugLevel}
 debug_verbosity=2
 log_pid=1
 macros_filter=KEY80,KEY81,KEY82,KEY83,KEY84
@@ -467,7 +474,8 @@ enable_flap_detection=0
 
   static async buildConfigs(
     hosts: number = 50,
-    servicesByHost: number = Engine.servicesByHost
+    servicesByHost: number = Engine.servicesByHost,
+    option: { debugLevel: number } = { debugLevel: 400 }
   ): Promise<boolean> {
     let retval: Promise<boolean>;
 
@@ -504,17 +512,21 @@ enable_flap_detection=0
               reject(err);
               return;
             }
-            write(fd, Buffer.from(Engine.createCentengine(inst)), (err) => {
-              --count;
-              if (count <= 0) {
-                resolve(true);
-                return;
+            write(
+              fd,
+              Buffer.from(Engine.createCentengine(inst, option)),
+              (err) => {
+                --count;
+                if (count <= 0) {
+                  resolve(true);
+                  return;
+                }
+                if (err) {
+                  reject(err);
+                  return;
+                }
               }
-              if (err) {
-                reject(err);
-                return;
-              }
-            });
+            );
           });
           open(configDir + "/hosts.cfg", "w", (err, fd) => {
             if (err) {
@@ -884,6 +896,85 @@ define connector {
             let idx = strings.findIndex((s) => line.includes(s));
             if (idx >= 0) {
               Engine.lastMatchingLog[inst] = dd;
+              strings.splice(idx, 1);
+              if (strings.length === 0) {
+                resolve(true);
+                return;
+              }
+            }
+            if (dd - from > seconds)
+              reject(
+                `Cannot find strings <<${strings.join(
+                  ", "
+                )}>> in centengine.log`
+              );
+          }
+        });
+        rl.on("close", () => {
+          reject("File closed");
+        });
+      });
+
+      retval = p
+        .then((value: boolean) => {
+          if (!value) {
+            console.log(
+              `Cannot find strings <<${strings.join(", ")}>> in engine logs`
+            );
+            return 0;
+          } else return 1;
+        })
+        .catch((err) => {
+          if (err == "File closed") return 2;
+          else {
+            console.log(
+              `Cannot find strings <<${strings.join(", ")}>> in engine logs`
+            );
+            return 0;
+          }
+        });
+    } while ((await retval) == 2);
+    return (await retval) > 0;
+  }
+
+  /**
+   *  this function is useful for checking that a log file contain some string
+   * @param  {Array<string>} strings list of string to check, every string in this array must be found in logs file
+   * @param  {number} seconds=15 number of second to wait before returning
+   * @returns {Promise<Boolean>} true if found, else false
+   */
+  async checkDebugFileContains(
+    inst: number,
+    strings: Array<string>,
+    seconds: number = 15
+  ): Promise<boolean> {
+    const logFile = `/var/log/centreon-engine/config${inst}/centengine.debug`;
+    while (seconds > 0 && !existsSync(logFile)) {
+      await sleep(1000);
+      seconds--;
+    }
+
+    let from = Engine.lastMatchingDebug[inst];
+    /* 3 possible values:
+     * 0 => failed
+     * 1 => succeed
+     * 2 => start again (the file reached its end without success).
+     */
+    let retval: Promise<number>;
+
+    do {
+      let p = new Promise((resolve, reject) => {
+        const rl = readline.createInterface({
+          input: createReadStream(logFile),
+          terminal: false,
+        });
+        rl.on("line", (line) => {
+          let d = line.substring(1);
+          let dd = parseInt(d);
+          if (dd >= from) {
+            let idx = strings.findIndex((s) => line.includes(s));
+            if (idx >= 0) {
+              Engine.lastMatchingDebug[inst] = dd;
               strings.splice(idx, 1);
               if (strings.length === 0) {
                 resolve(true);
