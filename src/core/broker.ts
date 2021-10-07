@@ -30,6 +30,7 @@ export class Broker {
   private rrdProcess: ChildProcess;
 
   static CENTREON_BROKER_UID = parseInt(shell.exec("id -u centreon-broker"));
+  static CENTREON_BROKER_GID = parseInt(shell.exec("id -g centreon-broker"));
   static CENTREON_ENGINE_UID = parseInt(shell.exec("id -u centreon-engine"));
   static CENTREON_ENGINE_GID = parseInt(shell.exec("id -g centreon-engine"));
   static CENTREON_BROKER_CENTRAL_LOGS_PATH = `/var/log/centreon-broker/central-broker-master.log`;
@@ -65,12 +66,20 @@ export class Broker {
         `/usr/sbin/cbd ${
           Broker.CENTREON_BROKER_CONFIG_PATH[BrokerType.central]
         }`,
-        { async: true, uid: Broker.CENTREON_BROKER_UID }
+        {
+          async: true,
+          uid: Broker.CENTREON_BROKER_UID,
+          gid: Broker.CENTREON_BROKER_GID,
+        }
       );
       if (this.instanceCount == 2)
         this.rrdProcess = shell.exec(
           `/usr/sbin/cbd ${Broker.CENTREON_BROKER_CONFIG_PATH[BrokerType.rrd]}`,
-          { async: true, uid: Broker.CENTREON_BROKER_UID }
+          {
+            async: true,
+            uid: Broker.CENTREON_BROKER_UID,
+            gid: Broker.CENTREON_BROKER_GID,
+          }
         );
 
       return await this.isRunning(5, 2);
@@ -381,26 +390,30 @@ export class Broker {
   static clearLogs(type: BrokerType): void {
     let logname: string;
     let uid: number;
+    let gid: number;
     let d = Math.floor(Date.now() / 1000);
     Broker.lastMatchingLog[type] = d;
     switch (type) {
       case BrokerType.central:
         logname = Broker.CENTREON_BROKER_CENTRAL_LOGS_PATH;
         uid = Broker.CENTREON_BROKER_UID;
+        gid = Broker.CENTREON_BROKER_GID;
         break;
       case BrokerType.module:
         logname = Broker.CENTREON_BROKER_MODULE_LOGS_PATH;
-        uid = Broker.CENTREON_ENGINE_UID;
+        uid = Broker.CENTREON_BROKER_UID;
+        gid = Broker.CENTREON_BROKER_GID;
         break;
       case BrokerType.rrd:
         logname = Broker.CENTREON_BROKER_RRD_LOGS_PATH;
-        uid = Broker.CENTREON_ENGINE_UID;
+        uid = Broker.CENTREON_BROKER_UID;
+        gid = Broker.CENTREON_BROKER_GID;
         break;
     }
     if (existsSync(logname)) {
       rmSync(logname);
       writeFileSync(logname, "");
-      chownSync(logname, uid, uid);
+      chownSync(logname, uid, gid);
     }
   }
 
