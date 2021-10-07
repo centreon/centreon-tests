@@ -4,10 +4,8 @@ import { Engine } from "../core/engine";
 import { isBrokerAndEngineConnected } from "../core/brokerEngine";
 import { readdirSync } from "fs";
 import { readdir } from "fs/promises";
-import mysql from "mysql";
-import { resolve } from "path/posix";
-import { captureRejections } from "events";
 import sleep from "await-sleep";
+import { createConnection } from "promise-mysql";
 
 shell.config.silent = true;
 
@@ -59,75 +57,52 @@ describe("engine reloads with new hosts and hostgroups configurations", () => {
         break;
       }
     }
+    console.log(`Trying to delete file '${metricfile}'`);
     let metric = metricfile.split(".")[0];
+    console.log(`Metric '${metric}' to remove`);
 
-    let p = new Promise<boolean>((resolve, reject) => {
-      const db = mysql.createConnection({
-        database: "centreon_storage",
-        host: "localhost",
-        user: "centreon",
-        password: "centreon",
-      });
-      db.connect((err: any) => {
-        if (err) throw err;
-        db.query(
-          `UPDATE index_data i LEFT JOIN metrics m ON i.id=m.index_id SET i.to_delete=1 WHERE m.metric_id=${metric}`,
-          (err: any, result: any) => {
-            if (err) reject(err);
-            resolve(true);
-          }
-        );
-      });
+    const db = await createConnection({
+      database: "centreon_storage",
+      host: "localhost",
+      user: "centreon",
+      password: "centreon",
     });
+    await db.query(
+      `UPDATE index_data i LEFT JOIN metrics m ON i.id=m.index_id SET i.to_delete=1 WHERE m.metric_id=${metric}`
+    );
 
-    let done: boolean = await p;
     await broker.reload();
-
 
     let dbResult: boolean = false;
     let fileResult: boolean = false;
-    if (done) {
-      let limit = Date.now() + 6 * 60000;
-      while (Date.now() < limit && !dbResult) {
-        dbResult = await new Promise<boolean>((resolve, reject) => {
-          let db = mysql.createConnection({
-            database: "centreon_storage",
-            host: "localhost",
-            user: "centreon",
-            password: "centreon",
-          });
-          db.connect((err: any) => {
-            if (err) reject(err);
-            db.query(
-              `SELECT metric_id FROM metrics WHERE metric_id=${metric}`,
-              (err: any, result: any) => {
-                if (err) reject(err);
-                if (result.length === 0) {
-                  resolve(true);
-                }
-              }
-            );
-          });
-        });
-        if (!dbResult) await sleep(5000);
-      }
-      while (Date.now() < limit && !fileResult) {
-        if (Date.now() >= limit) fileResult = false;
-        else {
-          files = await readdir("/var/lib/centreon/metrics");
-          fileResult = files.every((v) => v !== metricfile);
-          if (!fileResult) await sleep(5000);
-        }
-      }
-    }
+    let limit = Date.now() + 6 * 60000;
+    while (Date.now() < limit && !dbResult) {
+      let rows = await db.query(
+        `SELECT metric_id FROM metrics WHERE metric_id=${metric}`
+      );
 
+      if (rows.length === 0) {
+        dbResult = true;
+      } else await sleep(5000);
+    }
+    while (Date.now() < limit && !fileResult) {
+      files = await readdir("/var/lib/centreon/metrics");
+      fileResult = files.every((v) => v !== metricfile);
+      if (!fileResult) await sleep(5000);
+      else console.log(`File '${metricfile}' deleted`);
+    }
+    if (Date.now() >= limit) fileResult = false;
+
+    console.log("Stopping engine");
     const stopped1: boolean = await engine.stop();
+    console.log("Stopping broker");
     const stopped2: boolean = await broker.stop();
+    db.end();
 
     Broker.cleanAllInstances();
     Engine.cleanAllInstances();
 
-    expect(done).toBeTruthy();
+    console.log("Checking results");
     expect(dbResult).toBeTruthy();
     expect(fileResult).toBeTruthy();
     expect(started1).toBeTruthy();

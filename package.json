@@ -8,8 +8,8 @@
   "dependencies": {
     "await-sleep": "0.0.1",
     "fs.promises": "^0.1.2",
-    "mysql": "^2.18.1",
     "p-iteration": "^1.1.8",
+    "promise-mysql": "^5.0.4",
     "ps-list": "^7.2.0",
     "shelljs": "^0.8.4"
   },
