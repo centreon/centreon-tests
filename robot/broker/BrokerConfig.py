@@ -273,4 +273,4 @@ def config_output(name, output, value):
     f.write(json.dumps(conf, indent=2))
     f.close()
 
-config_output("central", "centreon-broker-master-rrd", "one_peer_retention")
+#config_output("central", "centreon-broker-master-rrd", "one_peer_retention")
