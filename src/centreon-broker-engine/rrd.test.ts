@@ -2,10 +2,11 @@ import shell from "shelljs";
 import { Broker, BrokerType } from "../core/broker";
 import { Engine } from "../core/engine";
 import { isBrokerAndEngineConnected } from "../core/brokerEngine";
-import { readdirSync } from "fs";
+import { readdirSync, statSync } from "fs";
 import { readdir } from "fs/promises";
 import sleep from "await-sleep";
 import { createConnection } from "promise-mysql";
+import { exit } from "process";
 
 shell.config.silent = true;
 
@@ -13,6 +14,17 @@ describe("engine reloads with new hosts and hostgroups configurations", () => {
   beforeEach(async () => {
     await Engine.cleanAllInstances();
     await Broker.cleanAllInstances();
+    let s = statSync("/var/lib/centreon/metrics");
+    if (s.uid != Broker.CENTREON_BROKER_UID) {
+      console.error("The folder '/var/lib/centreon/metrics'");
+      exit(1);
+    }
+    s = statSync("/var/lib/centreon/status");
+    if (s.uid != Broker.CENTREON_BROKER_UID) {
+      console.error("The folder '/var/lib/centreon/status'");
+      exit(1);
+    }
+    expect(s.uid).toEqual(Broker.CENTREON_BROKER_UID);
     Broker.startMysql();
     Broker.clearLogs(BrokerType.central);
     Broker.clearRetention(BrokerType.central);
@@ -48,25 +60,29 @@ describe("engine reloads with new hosts and hostgroups configurations", () => {
 
     const connected1 = await isBrokerAndEngineConnected();
 
-    /* We need to get a metric : ls /var/lib/centreon/metrics/*.rrd | head*/
-    let files = readdirSync("/var/lib/centreon/metrics");
-    let metricfile: string;
-    for (let f of files) {
-      if (f.match(/[0-9]+\.rrd/)) {
-        metricfile = f;
-        break;
-      }
-    }
-    console.log(`Trying to delete file '${metricfile}'`);
-    let metric = metricfile.split(".")[0];
-    console.log(`Metric '${metric}' to remove`);
-
     const db = await createConnection({
       database: "centreon_storage",
       host: "localhost",
       user: "centreon",
       password: "centreon",
     });
+    /* Let's get all the metric_id from the database */
+    let rows = await db.query(
+      `SELECT metric_id FROM metrics ORDER BY metric_id`
+    );
+
+    /* We need to get a metric : ls /var/lib/centreon/metrics/*.rrd | head*/
+    let files = readdirSync("/var/lib/centreon/metrics");
+    let metric: string;
+    for (let m in rows) {
+      if (files.some((v) => v === m + ".rrd")) {
+        metric = m;
+        break;
+      }
+    }
+    console.log(`Trying to delete file '${metric}.rrd'`);
+    console.log(`Metric '${metric}' to remove`);
+
     await db.query(
       `UPDATE index_data i LEFT JOIN metrics m ON i.id=m.index_id SET i.to_delete=1 WHERE m.metric_id=${metric}`
     );
@@ -85,6 +101,7 @@ describe("engine reloads with new hosts and hostgroups configurations", () => {
         dbResult = true;
       } else await sleep(5000);
     }
+    let metricfile = metric + ".rrd";
     while (Date.now() < limit && !fileResult) {
       files = await readdir("/var/lib/centreon/metrics");
       fileResult = files.every((v) => v !== metricfile);
@@ -99,8 +116,8 @@ describe("engine reloads with new hosts and hostgroups configurations", () => {
     const stopped2: boolean = await broker.stop();
     db.end();
 
-    Broker.cleanAllInstances();
-    Engine.cleanAllInstances();
+    await Broker.cleanAllInstances();
+    await Engine.cleanAllInstances();
 
     console.log("Checking results");
     expect(dbResult).toBeTruthy();
