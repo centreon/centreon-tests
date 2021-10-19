@@ -22,3 +22,6 @@ tags
 .ctags
 
 *.pem
+output.xml
+log.html
+report.html
